@@ -9,33 +9,9 @@ import { useEffect, useState } from "react";
 
 import { listNamespaces, reloadDatabase, setNamespace } from "@/api";
 import { type AppContext, AppContextValue, type ThemeMode } from "@/context";
+import LightDarkModeButton from "@/components/LightDarkModeButton";
 
 type SearchParams = { ns?: string };
-
-function SunIcon(): JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" fill="currentColor" />
-      <path
-        d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function MoonIcon(): JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-      <path
-        d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 1 0 11.5 11.5Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
 
 function RootLayout(): JSX.Element {
   const [statusMessage, setStatusMessage] = useState<string>("Ready.");
@@ -181,32 +157,11 @@ function RootLayout(): JSX.Element {
               ))}
             </nav>
 
-            <div className="mt-auto border-t border-slate-800 p-3">
-              <button
-                type="button"
-                className="relative inline-flex h-9 w-full items-center rounded-md border border-slate-700 bg-slate-900 px-1.5 text-slate-300"
-                onClick={() =>
-                  setThemeMode((value) =>
-                    value === "light" ? "dark" : "light",
-                  )
-                }
-                aria-label={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
-                title={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
-              >
-                <span className="absolute left-2.5">
-                  <SunIcon />
-                </span>
-                <span className="absolute right-2.5">
-                  <MoonIcon />
-                </span>
-                <span
-                  className={`absolute top-[3px] flex h-7 w-7 items-center justify-center rounded bg-kb-accent text-white transition-all ${
-                    themeMode === "light" ? "left-[3px]" : "right-[3px]"
-                  }`}
-                >
-                  {themeMode === "light" ? <SunIcon /> : <MoonIcon />}
-                </span>
-              </button>
+            <div className="mt-auto border-t border-slate-800 p-3 flex justify-center">
+              <LightDarkModeButton
+                value={themeMode}
+                onToggle={(mode) => setThemeMode(mode)}
+              />
             </div>
           </aside>
 
