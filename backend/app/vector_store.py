@@ -159,7 +159,9 @@ class VectorKnowledgeBase:
             raise RuntimeError("Document was created but could not be loaded.")
         return created
 
-    def update_document(self, document_id: str, title: str, content: str) -> dict | None:
+    def update_document(
+        self, document_id: str, title: str, content: str
+    ) -> dict | None:
         now = utc_now_iso()
         vector = self._embedder.embed(f"{title}\n{content}")
 
@@ -237,10 +239,7 @@ class VectorKnowledgeBase:
             )
 
         ranked.sort(key=lambda item: item[0], reverse=True)
-        return [
-            {**payload, "score": float(score)}
-            for score, payload in ranked[:limit]
-        ]
+        return [{**payload, "score": float(score)} for score, payload in ranked[:limit]]
 
     @staticmethod
     def _content_preview(content: str, max_chars: int = 180) -> str:

@@ -1,4 +1,10 @@
-import { createRootRouteWithContext, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import {
+  createRootRouteWithContext,
+  Link,
+  Outlet,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { listNamespaces, reloadDatabase, setNamespace } from "@/api";
@@ -23,7 +29,10 @@ function SunIcon(): JSX.Element {
 function MoonIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-      <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 1 0 11.5 11.5Z" fill="currentColor" />
+      <path
+        d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 1 0 11.5 11.5Z"
+        fill="currentColor"
+      />
     </svg>
   );
 }
@@ -53,7 +62,9 @@ function RootLayout(): JSX.Element {
       setThemeMode(stored);
       return;
     }
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const prefersDark = window.matchMedia(
+      "(prefers-color-scheme: dark)",
+    ).matches;
     setThemeMode(prefersDark ? "dark" : "light");
   }, []);
 
@@ -86,13 +97,13 @@ function RootLayout(): JSX.Element {
     theme: themeMode,
     setTheme: setThemeMode,
     namespaces,
-    fetchNamespaces
+    fetchNamespaces,
   };
 
   const navItems = [
     { to: "/documents" as const, label: "Documents" },
     { to: "/search" as const, label: "Search" },
-    { to: "/settings" as const, label: "Settings" }
+    { to: "/settings" as const, label: "Settings" },
   ];
 
   return (
@@ -102,7 +113,9 @@ function RootLayout(): JSX.Element {
           {/* Sidebar */}
           <aside className="flex flex-col border-r border-kb-line bg-slate-950 text-slate-100">
             <div className="border-b border-slate-800 px-4 py-4">
-              <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Vector MCP</p>
+              <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                Vector MCP
+              </p>
               <h1 className="mt-1 text-xl font-semibold">Knowledge Admin</h1>
             </div>
 
@@ -120,7 +133,9 @@ function RootLayout(): JSX.Element {
               >
                 <option value="">(default)</option>
                 {namespaces.map((ns) => (
-                  <option key={ns} value={ns}>{ns}</option>
+                  <option key={ns} value={ns}>
+                    {ns}
+                  </option>
                 ))}
               </select>
               <div className="flex gap-1.5">
@@ -156,7 +171,8 @@ function RootLayout(): JSX.Element {
                   search={{ ns: currentNs || undefined }}
                   className="block w-full rounded-md px-3 py-2 text-left text-sm font-medium transition text-slate-300 hover:bg-slate-900 hover:text-white"
                   activeProps={{
-                    className: "block w-full rounded-md px-3 py-2 text-left text-sm font-medium transition bg-slate-800 text-white"
+                    className:
+                      "block w-full rounded-md px-3 py-2 text-left text-sm font-medium transition bg-slate-800 text-white",
                   }}
                   activeOptions={{ includeSearch: false }}
                 >
@@ -169,7 +185,11 @@ function RootLayout(): JSX.Element {
               <button
                 type="button"
                 className="relative inline-flex h-9 w-full items-center rounded-md border border-slate-700 bg-slate-900 px-1.5 text-slate-300"
-                onClick={() => setThemeMode((value) => (value === "light" ? "dark" : "light"))}
+                onClick={() =>
+                  setThemeMode((value) =>
+                    value === "light" ? "dark" : "light",
+                  )
+                }
                 aria-label={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
                 title={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
               >
@@ -209,7 +229,9 @@ function RootLayout(): JSX.Element {
 
   async function switchNamespace(ns: string): Promise<void> {
     setNamespace(ns);
-    setStatusMessage(ns ? `Switched to namespace "${ns}".` : "Switched to default namespace.");
+    setStatusMessage(
+      ns ? `Switched to namespace "${ns}".` : "Switched to default namespace.",
+    );
     try {
       await reloadDatabase();
     } catch {
@@ -222,11 +244,11 @@ function RootLayout(): JSX.Element {
 
 export const Route = createRootRouteWithContext<AppContext>()({
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
-    ns: typeof search.ns === "string" ? search.ns : undefined
+    ns: typeof search.ns === "string" ? search.ns : undefined,
   }),
   beforeLoad: ({ search }) => {
     const ns = (search as SearchParams).ns ?? "";
     setNamespace(ns);
   },
-  component: RootLayout
+  component: RootLayout,
 });

@@ -10,13 +10,14 @@ const badgeVariants = cva(
       variant: {
         default: "border-transparent bg-kb-accent/12 text-kb-accentStrong",
         outline: "border-kb-line text-kb-soft",
-        secondary: "border-transparent bg-kb-line/45 text-kb-ink dark:bg-kb-bg/75 dark:text-kb-soft"
-      }
+        secondary:
+          "border-transparent bg-kb-line/45 text-kb-ink dark:bg-kb-bg/75 dark:text-kb-soft",
+      },
     },
     defaultVariants: {
-      variant: "default"
-    }
-  }
+      variant: "default",
+    },
+  },
 );
 
 function Badge({
@@ -24,7 +25,9 @@ function Badge({
   variant,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof badgeVariants>) {
-  return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
+  return (
+    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+  );
 }
 
 export { Badge, badgeVariants };

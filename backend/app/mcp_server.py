@@ -15,7 +15,9 @@ def _has_api_proxy() -> bool:
     return bool(API_BASE)
 
 
-def _api_request(method: str, path: str, payload: dict | None = None) -> dict | list | None:
+def _api_request(
+    method: str, path: str, payload: dict | None = None
+) -> dict | list | None:
     if not _has_api_proxy():
         raise RuntimeError("KB_API_BASE is not configured.")
 
@@ -69,7 +71,9 @@ def get_document(document_id: str) -> dict:
 def create_document(title: str, content: str = "") -> dict:
     """Create a new document."""
     if _has_api_proxy():
-        document = _api_request("POST", "/documents", {"title": title.strip(), "content": content})
+        document = _api_request(
+            "POST", "/documents", {"title": title.strip(), "content": content}
+        )
         return {"ok": True, "document": document}
 
     document = get_kb(NAMESPACE).create_document(title=title.strip(), content=content)
@@ -87,7 +91,11 @@ def update_document(
         safe_id = parse.quote(document_id, safe="")
         current = _api_request("GET", f"/documents/{safe_id}")
         if not isinstance(current, dict):
-            return {"ok": False, "error": "Document not found", "document_id": document_id}
+            return {
+                "ok": False,
+                "error": "Document not found",
+                "document_id": document_id,
+            }
 
         next_title = title.strip() if title is not None else current.get("title", "")
         next_content = content if content is not None else current.get("content", "")

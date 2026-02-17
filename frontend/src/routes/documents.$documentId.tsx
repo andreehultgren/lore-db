@@ -29,7 +29,9 @@ function EditDocumentPage(): JSX.Element {
       setTitle(doc.title);
       setContent(doc.content);
     } catch (error: unknown) {
-      setStatusMessage(`Failed to open document: ${error instanceof Error ? error.message : String(error)}`);
+      setStatusMessage(
+        `Failed to open document: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setLoading(false);
     }
@@ -45,12 +47,17 @@ function EditDocumentPage(): JSX.Element {
 
     try {
       setSaving(true);
-      const saved = await updateDocument(documentId, { title: cleanTitle, content });
+      const saved = await updateDocument(documentId, {
+        title: cleanTitle,
+        content,
+      });
       setTitle(saved.title);
       setContent(saved.content);
       setStatusMessage("Document updated.");
     } catch (error: unknown) {
-      setStatusMessage(`Save failed: ${error instanceof Error ? error.message : String(error)}`);
+      setStatusMessage(
+        `Save failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setSaving(false);
     }
@@ -65,7 +72,9 @@ function EditDocumentPage(): JSX.Element {
       setStatusMessage("Document deleted.");
       void navigate({ to: "/documents", search: { ns: ns || undefined } });
     } catch (error: unknown) {
-      setStatusMessage(`Delete failed: ${error instanceof Error ? error.message : String(error)}`);
+      setStatusMessage(
+        `Delete failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -85,13 +94,23 @@ function EditDocumentPage(): JSX.Element {
           search={{ ns: ns || undefined }}
           className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-kb-accent hover:underline"
         >
-          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            viewBox="0 0 16 16"
+            className="h-3.5 w-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M10 2L4 8l6 6" />
           </svg>
           All Documents
         </Link>
 
-        <h2 className="mb-5 text-xl font-semibold text-kb-ink">Edit Document</h2>
+        <h2 className="mb-5 text-xl font-semibold text-kb-ink">
+          Edit Document
+        </h2>
 
         <form className="space-y-5" onSubmit={(event) => void onSave(event)}>
           <div>
@@ -143,5 +162,5 @@ function EditDocumentPage(): JSX.Element {
 }
 
 export const Route = createFileRoute("/documents/$documentId")({
-  component: EditDocumentPage
+  component: EditDocumentPage,
 });

@@ -13,8 +13,8 @@ const router = createRouter({
     theme: "light",
     setTheme: () => {},
     namespaces: [],
-    fetchNamespaces: async () => {}
-  }
+    fetchNamespaces: async () => {},
+  },
 });
 
 declare module "@tanstack/react-router" {
@@ -31,5 +31,5 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <React.StrictMode>
     <RouterProvider router={router} />
-  </React.StrictMode>
+  </React.StrictMode>,
 );

@@ -27,7 +27,8 @@ function DocumentListPage(): JSX.Element {
   const [docPage, setDocPage] = useState<number>(1);
   const [rowsPerPage, setRowsPerPage] = useState<number>(10);
   const [docSortKey, setDocSortKey] = useState<DocSortKey>("updated_at");
-  const [docSortDirection, setDocSortDirection] = useState<SortDirection>("desc");
+  const [docSortDirection, setDocSortDirection] =
+    useState<SortDirection>("desc");
 
   const filteredDocs = useMemo(() => {
     const query = docQuery.trim().toLowerCase();
@@ -35,7 +36,7 @@ function DocumentListPage(): JSX.Element {
     return documents.filter(
       (doc) =>
         doc.title.toLowerCase().includes(query) ||
-        doc.content.toLowerCase().includes(query)
+        doc.content.toLowerCase().includes(query),
     );
   }, [documents, docQuery]);
 
@@ -79,7 +80,9 @@ function DocumentListPage(): JSX.Element {
       const docs = await listDocuments();
       setDocuments(docs);
     } catch (error: unknown) {
-      setStatusMessage(`Failed to load documents: ${error instanceof Error ? error.message : String(error)}`);
+      setStatusMessage(
+        `Failed to load documents: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setLoading(false);
     }
@@ -94,7 +97,9 @@ function DocumentListPage(): JSX.Element {
       setStatusMessage("Document deleted.");
       await refreshDocuments();
     } catch (error: unknown) {
-      setStatusMessage(`Delete failed: ${error instanceof Error ? error.message : String(error)}`);
+      setStatusMessage(
+        `Delete failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -121,7 +126,11 @@ function DocumentListPage(): JSX.Element {
             <Button size="sm">Add New</Button>
           </Link>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void refreshDocuments()}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void refreshDocuments()}
+        >
           Refresh
         </Button>
       </div>
@@ -179,14 +188,22 @@ function DocumentListPage(): JSX.Element {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={2} className="px-4 py-10 text-center text-kb-soft">
+                  <td
+                    colSpan={2}
+                    className="px-4 py-10 text-center text-kb-soft"
+                  >
                     Loading...
                   </td>
                 </tr>
               ) : pagedDocs.length === 0 ? (
                 <tr>
-                  <td colSpan={2} className="px-4 py-10 text-center text-kb-soft">
-                    {docQuery ? "No documents match your filter." : "No documents yet. Click \"Add New\" to create one."}
+                  <td
+                    colSpan={2}
+                    className="px-4 py-10 text-center text-kb-soft"
+                  >
+                    {docQuery
+                      ? "No documents match your filter."
+                      : 'No documents yet. Click "Add New" to create one.'}
                   </td>
                 </tr>
               ) : (
@@ -238,7 +255,9 @@ function DocumentListPage(): JSX.Element {
         <div className="flex items-center justify-between">
           <p className="text-xs text-kb-soft">
             {filteredDocs.length} document{filteredDocs.length === 1 ? "" : "s"}
-            {filteredDocs.length !== documents.length ? ` (filtered from ${documents.length})` : ""}
+            {filteredDocs.length !== documents.length
+              ? ` (filtered from ${documents.length})`
+              : ""}
           </p>
           {totalPages > 1 ? (
             <div className="flex items-center gap-1.5">
@@ -257,7 +276,9 @@ function DocumentListPage(): JSX.Element {
                 size="sm"
                 variant="outline"
                 disabled={docPage >= totalPages}
-                onClick={() => setDocPage((value) => Math.min(totalPages, value + 1))}
+                onClick={() =>
+                  setDocPage((value) => Math.min(totalPages, value + 1))
+                }
               >
                 Next
               </Button>
@@ -270,5 +291,5 @@ function DocumentListPage(): JSX.Element {
 }
 
 export const Route = createFileRoute("/documents/")({
-  component: DocumentListPage
+  component: DocumentListPage,
 });

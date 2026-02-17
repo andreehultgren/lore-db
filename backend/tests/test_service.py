@@ -63,7 +63,9 @@ class TestGetKb:
         kb1.close()
         get_kb.cache_clear()
 
-    def test_different_namespaces_return_different_instances(self, tmp_path, monkeypatch):
+    def test_different_namespaces_return_different_instances(
+        self, tmp_path, monkeypatch
+    ):
         monkeypatch.setenv("KB_DB_PATH", str(tmp_path / "test.db"))
         get_kb.cache_clear()
         kb1 = get_kb("")

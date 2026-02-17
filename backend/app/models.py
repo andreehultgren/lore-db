@@ -32,4 +32,3 @@ class SearchResult(BaseModel):
     title: str
     content_preview: str
     score: float
-

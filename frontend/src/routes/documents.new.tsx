@@ -31,10 +31,12 @@ function NewDocumentPage(): JSX.Element {
       void navigate({
         to: "/documents/$documentId",
         params: { documentId: saved.id },
-        search: { ns: ns || undefined }
+        search: { ns: ns || undefined },
       });
     } catch (error: unknown) {
-      setStatusMessage(`Save failed: ${error instanceof Error ? error.message : String(error)}`);
+      setStatusMessage(
+        `Save failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setSaving(false);
     }
@@ -48,7 +50,15 @@ function NewDocumentPage(): JSX.Element {
           search={{ ns: ns || undefined }}
           className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-kb-accent hover:underline"
         >
-          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            viewBox="0 0 16 16"
+            className="h-3.5 w-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M10 2L4 8l6 6" />
           </svg>
           All Documents
@@ -94,5 +104,5 @@ function NewDocumentPage(): JSX.Element {
 }
 
 export const Route = createFileRoute("/documents/new")({
-  component: NewDocumentPage
+  component: NewDocumentPage,
 });

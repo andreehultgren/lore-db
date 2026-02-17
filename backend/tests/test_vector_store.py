@@ -229,7 +229,9 @@ class TestVectorKnowledgeBaseSearch:
 
     def test_search_after_update_reflects_new_content(self, kb):
         doc = kb.create_document(title="Original", content="apples and oranges")
-        kb.update_document(doc["id"], title="Updated", content="quantum physics experiments")
+        kb.update_document(
+            doc["id"], title="Updated", content="quantum physics experiments"
+        )
         results = kb.search("quantum physics")
         assert any(r["id"] == doc["id"] for r in results)
 

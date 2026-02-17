@@ -8,16 +8,16 @@ export default defineConfig({
   plugins: [tanstackRouter(), react()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src")
-    }
+      "@": path.resolve(__dirname, "./src"),
+    },
   },
   server: {
     host: "0.0.0.0",
-    port: 5173
+    port: 5173,
   },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
-    globals: true
-  }
+    globals: true,
+  },
 });

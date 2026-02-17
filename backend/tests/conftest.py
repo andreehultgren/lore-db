@@ -23,7 +23,14 @@ def kb(tmp_db_path):
 @pytest.fixture()
 def kb_with_docs(kb):
     """A VectorKnowledgeBase pre-populated with three documents."""
-    kb.create_document(title="Python Basics", content="Variables, loops, and functions in Python.")
-    kb.create_document(title="JavaScript Guide", content="Learn about closures and prototypes.")
-    kb.create_document(title="Database Design", content="Normalization, indexes, and query optimization.")
+    kb.create_document(
+        title="Python Basics", content="Variables, loops, and functions in Python."
+    )
+    kb.create_document(
+        title="JavaScript Guide", content="Learn about closures and prototypes."
+    )
+    kb.create_document(
+        title="Database Design",
+        content="Normalization, indexes, and query optimization.",
+    )
     return kb

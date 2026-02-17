@@ -29,7 +29,9 @@ function SearchPage(): JSX.Element {
       setSearchResults(results);
       setStatusMessage(`Found ${results.length} matching document(s).`);
     } catch (error: unknown) {
-      setStatusMessage(`Search failed: ${error instanceof Error ? error.message : String(error)}`);
+      setStatusMessage(
+        `Search failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setSearching(false);
     }
@@ -40,7 +42,10 @@ function SearchPage(): JSX.Element {
       <h2 className="mb-6 text-xl font-semibold text-kb-ink">Search</h2>
 
       <div className="space-y-4">
-        <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px_140px]" onSubmit={(event) => void onRunSearch(event)}>
+        <form
+          className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px_140px]"
+          onSubmit={(event) => void onRunSearch(event)}
+        >
           <Input
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
@@ -69,25 +74,45 @@ function SearchPage(): JSX.Element {
           <table className="min-w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-kb-line bg-slate-50 dark:bg-kb-bg/60">
-                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-kb-soft">Title</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-kb-soft">Score</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-kb-soft">Preview</th>
-                <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-kb-soft">Actions</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-kb-soft">
+                  Title
+                </th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-kb-soft">
+                  Score
+                </th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-kb-soft">
+                  Preview
+                </th>
+                <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-kb-soft">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
               {searchResults.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-kb-soft">
+                  <td
+                    colSpan={4}
+                    className="px-4 py-10 text-center text-kb-soft"
+                  >
                     No results yet.
                   </td>
                 </tr>
               ) : (
                 searchResults.map((result) => (
-                  <tr key={result.id} className="border-t border-kb-line transition hover:bg-kb-accent/5">
-                    <td className="px-4 py-2.5 align-top font-medium text-kb-ink">{result.title}</td>
-                    <td className="px-4 py-2.5 align-top tabular-nums text-kb-soft">{result.score.toFixed(3)}</td>
-                    <td className="px-4 py-2.5 align-top text-kb-soft">{result.content_preview}</td>
+                  <tr
+                    key={result.id}
+                    className="border-t border-kb-line transition hover:bg-kb-accent/5"
+                  >
+                    <td className="px-4 py-2.5 align-top font-medium text-kb-ink">
+                      {result.title}
+                    </td>
+                    <td className="px-4 py-2.5 align-top tabular-nums text-kb-soft">
+                      {result.score.toFixed(3)}
+                    </td>
+                    <td className="px-4 py-2.5 align-top text-kb-soft">
+                      {result.content_preview}
+                    </td>
                     <td className="px-4 py-2.5">
                       <div className="flex justify-end gap-2">
                         <Link
@@ -113,5 +138,5 @@ function SearchPage(): JSX.Element {
 }
 
 export const Route = createFileRoute("/search")({
-  component: SearchPage
+  component: SearchPage,
 });

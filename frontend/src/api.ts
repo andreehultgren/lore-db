@@ -1,4 +1,6 @@
-const API_BASE = (import.meta.env.VITE_API_BASE ?? "http://localhost:8000").replace(/\/$/, "");
+const API_BASE = (
+  import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+).replace(/\/$/, "");
 
 let _namespace = "";
 
@@ -30,9 +32,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers: {
       "Content-Type": "application/json",
       "X-Kb-Namespace": _namespace,
-      ...(options.headers ?? {})
+      ...(options.headers ?? {}),
     },
-    ...options
+    ...options,
   });
 
   if (!response.ok) {
@@ -63,20 +65,23 @@ export function getDocument(documentId: string): Promise<KnowledgeDocument> {
   return request<KnowledgeDocument>(`/documents/${documentId}`);
 }
 
-export function createDocument(payload: { title: string; content: string }): Promise<KnowledgeDocument> {
+export function createDocument(payload: {
+  title: string;
+  content: string;
+}): Promise<KnowledgeDocument> {
   return request<KnowledgeDocument>("/documents", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
 }
 
 export function updateDocument(
   documentId: string,
-  payload: { title: string; content: string }
+  payload: { title: string; content: string },
 ): Promise<KnowledgeDocument> {
   return request<KnowledgeDocument>(`/documents/${documentId}`, {
     method: "PUT",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
 }
 
@@ -84,9 +89,12 @@ export function deleteDocument(documentId: string): Promise<null> {
   return request<null>(`/documents/${documentId}`, { method: "DELETE" });
 }
 
-export function searchDocuments(query: string, limit = 5): Promise<SearchHit[]> {
+export function searchDocuments(
+  query: string,
+  limit = 5,
+): Promise<SearchHit[]> {
   return request<SearchHit[]>("/search", {
     method: "POST",
-    body: JSON.stringify({ query, limit })
+    body: JSON.stringify({ query, limit }),
   });
 }

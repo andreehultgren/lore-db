@@ -16,7 +16,9 @@ export const AppContextValue = createContext<AppContext | null>(null);
 export function useAppContext(): AppContext {
   const ctx = useContext(AppContextValue);
   if (!ctx) {
-    throw new Error("useAppContext must be used within AppContextValue.Provider");
+    throw new Error(
+      "useAppContext must be used within AppContextValue.Provider",
+    );
   }
   return ctx;
 }

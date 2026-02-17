@@ -51,11 +51,15 @@ def get_document(document_id: str, x_kb_namespace: str = Header("")) -> dict:
 
 @app.post("/documents", response_model=Document, status_code=201)
 def create_document(payload: DocumentCreate, x_kb_namespace: str = Header("")) -> dict:
-    return get_kb(x_kb_namespace).create_document(title=payload.title.strip(), content=payload.content)
+    return get_kb(x_kb_namespace).create_document(
+        title=payload.title.strip(), content=payload.content
+    )
 
 
 @app.put("/documents/{document_id}", response_model=Document)
-def update_document(document_id: str, payload: DocumentUpdate, x_kb_namespace: str = Header("")) -> dict:
+def update_document(
+    document_id: str, payload: DocumentUpdate, x_kb_namespace: str = Header("")
+) -> dict:
     updated = get_kb(x_kb_namespace).update_document(
         document_id=document_id,
         title=payload.title.strip(),

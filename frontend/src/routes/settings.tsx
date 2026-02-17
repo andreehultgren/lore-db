@@ -12,5 +12,5 @@ function SettingsPage(): JSX.Element {
 }
 
 export const Route = createFileRoute("/settings")({
-  component: SettingsPage
+  component: SettingsPage,
 });

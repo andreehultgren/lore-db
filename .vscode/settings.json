@@ -1,0 +1,57 @@
+{
+  // --- TESTING CONFIGURATION ---
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true,
+  "python.testing.cwd": "${workspaceFolder}/backend",
+  "python.testing.pytestArgs": ["."],
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python3.12",
+
+  "vitest.commandLine": "npx vitest",
+  "vitest.workingDirectory": "frontend",
+
+  // --- GLOBAL EDITOR SETTINGS ---
+  "editor.formatOnSave": true,
+
+  // --- FRONTEND FORMATTING (2 Spaces) ---
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  // --- STYLES (2 Spaces) ---
+  "[css]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  "[scss]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  "[less]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+
+  // --- PYTHON FORMATTING (4 Spaces) ---
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.tabSize": 4
+  },
+  // If you use the Black extension, arguments go here:
+  "black-formatter.args": ["--line-length", "88"]
+}

@@ -11,13 +11,19 @@ _SAFE_NAMESPACE = re.compile(r"^[a-zA-Z0-9_\-]+$")
 def _db_path_for_namespace(namespace: str) -> str:
     configured_path = os.getenv("KB_DB_PATH")
     backend_root = Path(__file__).resolve().parent.parent
-    base = Path(configured_path) if configured_path else backend_root / "data" / "knowledge_base.db"
+    base = (
+        Path(configured_path)
+        if configured_path
+        else backend_root / "data" / "knowledge_base.db"
+    )
 
     if not namespace:
         return str(base)
 
     if not _SAFE_NAMESPACE.match(namespace):
-        raise ValueError(f"Invalid KB_NAMESPACE: {namespace!r}. Use only alphanumeric, hyphens, and underscores.")
+        raise ValueError(
+            f"Invalid KB_NAMESPACE: {namespace!r}. Use only alphanumeric, hyphens, and underscores."
+        )
 
     # Insert namespace before .db extension: knowledge_base_myproject.db
     return str(base.with_stem(f"{base.stem}_{namespace}"))
@@ -42,7 +48,11 @@ def list_namespaces() -> list[str]:
     """Scan the data directory for namespace DB files and return namespace names."""
     configured_path = os.getenv("KB_DB_PATH")
     backend_root = Path(__file__).resolve().parent.parent
-    base = Path(configured_path) if configured_path else backend_root / "data" / "knowledge_base.db"
+    base = (
+        Path(configured_path)
+        if configured_path
+        else backend_root / "data" / "knowledge_base.db"
+    )
 
     data_dir = base.parent
     stem = base.stem  # e.g. "knowledge_base"

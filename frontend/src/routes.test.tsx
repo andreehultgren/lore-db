@@ -9,7 +9,7 @@ import {
   RouterProvider,
   redirect,
   Outlet,
-  Link
+  Link,
 } from "@tanstack/react-router";
 import type { AppContext } from "@/context";
 
@@ -26,13 +26,13 @@ vi.mock("@/api", () => ({
       title: "Test Doc",
       content: "Test content",
       created_at: "2026-01-01T00:00:00Z",
-      updated_at: "2026-01-01T00:00:00Z"
-    })
+      updated_at: "2026-01-01T00:00:00Z",
+    }),
   ),
   createDocument: vi.fn(),
   updateDocument: vi.fn(),
   deleteDocument: vi.fn(),
-  searchDocuments: vi.fn(() => Promise.resolve([]))
+  searchDocuments: vi.fn(() => Promise.resolve([])),
 }));
 
 import { setNamespace } from "@/api";
@@ -46,7 +46,7 @@ function createTestContext(): AppContext {
     theme: "light",
     setTheme: vi.fn(),
     namespaces: ["ns1", "ns2"],
-    fetchNamespaces: vi.fn()
+    fetchNamespaces: vi.fn(),
   };
 }
 
@@ -59,7 +59,7 @@ function createTestRouter(initialUrl: string) {
 
   const rootRoute = createRootRouteWithContext<AppContext>()({
     validateSearch: (search: Record<string, unknown>): SearchParams => ({
-      ns: typeof search.ns === "string" ? search.ns : undefined
+      ns: typeof search.ns === "string" ? search.ns : undefined,
     }),
     beforeLoad: ({ search }) => {
       const ns = (search as SearchParams).ns ?? "";
@@ -82,7 +82,7 @@ function createTestRouter(initialUrl: string) {
           <Outlet />
         </main>
       </div>
-    )
+    ),
   });
 
   const indexRoute = createRoute({
@@ -90,19 +90,19 @@ function createTestRouter(initialUrl: string) {
     path: "/",
     beforeLoad: () => {
       throw redirect({ to: "/documents" });
-    }
+    },
   });
 
   const documentsIndexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/documents",
-    component: () => <div data-testid="documents-page">Document List</div>
+    component: () => <div data-testid="documents-page">Document List</div>,
   });
 
   const documentsNewRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/documents/new",
-    component: () => <div data-testid="documents-new-page">New Document</div>
+    component: () => <div data-testid="documents-new-page">New Document</div>,
   });
 
   const documentEditRoute = createRoute({
@@ -110,24 +110,20 @@ function createTestRouter(initialUrl: string) {
     path: "/documents/$documentId",
     component: () => {
       const { documentId } = documentEditRoute.useParams();
-      return (
-        <div data-testid="document-edit-page">
-          Editing {documentId}
-        </div>
-      );
-    }
+      return <div data-testid="document-edit-page">Editing {documentId}</div>;
+    },
   });
 
   const searchRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/search",
-    component: () => <div data-testid="search-page">Search Page</div>
+    component: () => <div data-testid="search-page">Search Page</div>,
   });
 
   const settingsRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/settings",
-    component: () => <div data-testid="settings-page">Settings Page</div>
+    component: () => <div data-testid="settings-page">Settings Page</div>,
   });
 
   const routeTree = rootRoute.addChildren([
@@ -136,14 +132,14 @@ function createTestRouter(initialUrl: string) {
     documentsNewRoute,
     documentEditRoute,
     searchRoute,
-    settingsRoute
+    settingsRoute,
   ]);
 
   const history = createMemoryHistory({ initialEntries: [initialUrl] });
   const router = createRouter({
     routeTree,
     history,
-    context: ctx
+    context: ctx,
   });
 
   return router;
