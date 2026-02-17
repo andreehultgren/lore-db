@@ -8,6 +8,7 @@ from .service import get_kb
 
 mcp = FastMCP("vector-knowledge-base")
 API_BASE = os.getenv("KB_API_BASE", "").rstrip("/")
+NAMESPACE = os.getenv("KB_NAMESPACE", "")
 
 
 def _has_api_proxy() -> bool:
@@ -25,6 +26,8 @@ def _api_request(method: str, path: str, payload: dict | None = None) -> dict | 
         body = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
 
+    if NAMESPACE:
+        headers["X-KB-Namespace"] = NAMESPACE
     req = request.Request(url=url, data=body, headers=headers, method=method)
     try:
         with request.urlopen(req, timeout=10) as response:
@@ -45,7 +48,7 @@ def list_documents() -> list[dict]:
     if _has_api_proxy():
         data = _api_request("GET", "/documents")
         return data if isinstance(data, list) else []
-    return get_kb().list_documents()
+    return get_kb(NAMESPACE).list_documents()
 
 
 @mcp.tool()
@@ -56,7 +59,7 @@ def get_document(document_id: str) -> dict:
         data = _api_request("GET", f"/documents/{safe_id}")
         return {"ok": True, "document": data}
 
-    document = get_kb().get_document(document_id)
+    document = get_kb(NAMESPACE).get_document(document_id)
     if document is None:
         return {"ok": False, "error": "Document not found", "document_id": document_id}
     return {"ok": True, "document": document}
@@ -69,7 +72,7 @@ def create_document(title: str, content: str = "") -> dict:
         document = _api_request("POST", "/documents", {"title": title.strip(), "content": content})
         return {"ok": True, "document": document}
 
-    document = get_kb().create_document(title=title.strip(), content=content)
+    document = get_kb(NAMESPACE).create_document(title=title.strip(), content=content)
     return {"ok": True, "document": document}
 
 
@@ -95,13 +98,13 @@ def update_document(
         )
         return {"ok": True, "document": updated}
 
-    current = get_kb().get_document(document_id)
+    current = get_kb(NAMESPACE).get_document(document_id)
     if current is None:
         return {"ok": False, "error": "Document not found", "document_id": document_id}
 
     next_title = title.strip() if title is not None else current["title"]
     next_content = content if content is not None else current["content"]
-    updated = get_kb().update_document(
+    updated = get_kb(NAMESPACE).update_document(
         document_id=document_id,
         title=next_title,
         content=next_content,
@@ -117,7 +120,7 @@ def delete_document(document_id: str) -> dict:
         _api_request("DELETE", f"/documents/{safe_id}")
         return {"ok": True, "document_id": document_id}
 
-    deleted = get_kb().delete_document(document_id=document_id)
+    deleted = get_kb(NAMESPACE).delete_document(document_id=document_id)
     if not deleted:
         return {"ok": False, "error": "Document not found", "document_id": document_id}
     return {"ok": True, "document_id": document_id}
@@ -131,7 +134,7 @@ def search_documents(query: str, limit: int = 5) -> dict:
         results = _api_request("POST", "/search", {"query": query, "limit": safe_limit})
         return {"ok": True, "query": query, "results": results}
 
-    results = get_kb().search(query=query, limit=safe_limit)
+    results = get_kb(NAMESPACE).search(query=query, limit=safe_limit)
     return {"ok": True, "query": query, "results": results}
 
 

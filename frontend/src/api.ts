@@ -1,5 +1,15 @@
 const API_BASE = (import.meta.env.VITE_API_BASE ?? "http://localhost:8000").replace(/\/$/, "");
 
+let _namespace = "";
+
+export function setNamespace(ns: string): void {
+  _namespace = ns;
+}
+
+export function getNamespace(): string {
+  return _namespace;
+}
+
 export interface KnowledgeDocument {
   id: string;
   title: string;
@@ -19,6 +29,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
       "Content-Type": "application/json",
+      "X-Kb-Namespace": _namespace,
       ...(options.headers ?? {})
     },
     ...options
@@ -34,6 +45,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+export function listNamespaces(): Promise<string[]> {
+  return request<string[]>("/namespaces");
 }
 
 export function listDocuments(): Promise<KnowledgeDocument[]> {

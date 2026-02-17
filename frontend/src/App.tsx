@@ -4,9 +4,12 @@ import {
   createDocument,
   deleteDocument,
   getDocument,
+  getNamespace,
   listDocuments,
+  listNamespaces,
   reloadDatabase,
   searchDocuments,
+  setNamespace,
   updateDocument,
   type KnowledgeDocument,
   type SearchHit
@@ -21,7 +24,7 @@ type Draft = {
 };
 
 type ThemeMode = "light" | "dark";
-type AppTab = "documents" | "editor" | "search" | "settings";
+type AppTab = "documents" | "search" | "settings";
 type DocSortKey = "updated_at" | "title";
 type SortDirection = "asc" | "desc";
 
@@ -40,17 +43,6 @@ function toErrorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
-}
-
-function previewText(content: string, maxLength = 95): string {
-  const normalized = content.replace(/\s+/g, " ").trim();
-  if (!normalized) {
-    return "(No content)";
-  }
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-  return `${normalized.slice(0, maxLength - 3)}...`;
 }
 
 function SunIcon(): JSX.Element {
@@ -77,7 +69,8 @@ function MoonIcon(): JSX.Element {
 
 export default function App(): JSX.Element {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState<boolean>(false);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
 
   const [statusMessage, setStatusMessage] = useState<string>("Ready.");
@@ -93,22 +86,16 @@ export default function App(): JSX.Element {
   const [docSortKey, setDocSortKey] = useState<DocSortKey>("updated_at");
   const [docSortDirection, setDocSortDirection] = useState<SortDirection>("desc");
 
-  const [previewId, setPreviewId] = useState<string | null>(null);
-
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchLimit, setSearchLimit] = useState<number>(10);
   const [searching, setSearching] = useState<boolean>(false);
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
 
-  const selectedDocument = useMemo(
-    () => documents.find((document) => document.id === selectedId) ?? null,
-    [documents, selectedId]
-  );
+  const [namespace, setNamespaceLocal] = useState<string>("");
+  const [namespaces, setNamespaces] = useState<string[]>([]);
+  const [nsInput, setNsInput] = useState<string>("");
 
-  const previewDocument = useMemo(
-    () => documents.find((document) => document.id === previewId) ?? null,
-    [documents, previewId]
-  );
+  const isEditorOpen = editingId !== null || isCreating;
 
   const filteredDocs = useMemo(() => {
     const query = docQuery.trim().toLowerCase();
@@ -177,6 +164,30 @@ export default function App(): JSX.Element {
     }
   }, [docPage, totalPages]);
 
+  async function fetchNamespaces(): Promise<void> {
+    try {
+      const ns = await listNamespaces();
+      setNamespaces(ns);
+    } catch {
+      // Ignore if endpoint is unavailable.
+    }
+  }
+
+  async function switchNamespace(ns: string): Promise<void> {
+    setNamespace(ns);
+    setNamespaceLocal(ns);
+    closeEditor();
+    setSearchResults([]);
+    setStatusMessage(ns ? `Switched to namespace "${ns}".` : "Switched to default namespace.");
+    try {
+      await reloadDatabase();
+    } catch {
+      // Ignore reload failures.
+    }
+    await refreshDocuments();
+    await fetchNamespaces();
+  }
+
   async function initializeApp(): Promise<void> {
     try {
       await reloadDatabase();
@@ -184,26 +195,18 @@ export default function App(): JSX.Element {
       // Ignore startup reload failures.
     }
     await refreshDocuments();
+    await fetchNamespaces();
   }
 
-  async function refreshDocuments(preferredId: string | null = null): Promise<void> {
+  async function refreshDocuments(): Promise<void> {
     try {
       setLoading(true);
       const docs = await listDocuments();
       setDocuments(docs);
 
-      if (!preferredId) {
-        if (selectedId && !docs.some((document) => document.id === selectedId)) {
-          setSelectedId(null);
-          setDraft(EMPTY_DRAFT);
-        }
-        return;
+      if (editingId && !docs.some((document) => document.id === editingId)) {
+        closeEditor();
       }
-
-      if (!docs.some((document) => document.id === preferredId)) {
-        return;
-      }
-      await openEditorForDocument(preferredId);
     } catch (error: unknown) {
       setStatusMessage(`Failed to load documents: ${toErrorMessage(error)}`);
     } finally {
@@ -212,10 +215,29 @@ export default function App(): JSX.Element {
   }
 
   async function openEditorForDocument(documentId: string): Promise<void> {
-    const document = await getDocument(documentId);
-    setSelectedId(documentId);
-    setDraft({ title: document.title, content: document.content });
-    setActiveTab("editor");
+    try {
+      const document = await getDocument(documentId);
+      setEditingId(documentId);
+      setIsCreating(false);
+      setDraft({ title: document.title, content: document.content });
+      setActiveTab("documents");
+    } catch (error: unknown) {
+      setStatusMessage(`Failed to open document: ${toErrorMessage(error)}`);
+    }
+  }
+
+  function closeEditor(): void {
+    setEditingId(null);
+    setIsCreating(false);
+    setDraft(EMPTY_DRAFT);
+  }
+
+  function onCreateNew(): void {
+    setEditingId(null);
+    setIsCreating(true);
+    setDraft(EMPTY_DRAFT);
+    setActiveTab("documents");
+    setStatusMessage("Creating a new document.");
   }
 
   function onSortDocuments(key: DocSortKey): void {
@@ -225,13 +247,6 @@ export default function App(): JSX.Element {
     }
     setDocSortKey(key);
     setDocSortDirection(key === "title" ? "asc" : "desc");
-  }
-
-  function onCreateNew(): void {
-    setSelectedId(null);
-    setDraft(EMPTY_DRAFT);
-    setActiveTab("editor");
-    setStatusMessage("Creating a new document.");
   }
 
   async function onSave(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -244,12 +259,15 @@ export default function App(): JSX.Element {
 
     try {
       setSaving(true);
-      const saved = selectedId
-        ? await updateDocument(selectedId, { title: cleanTitle, content: draft.content })
+      const saved = editingId
+        ? await updateDocument(editingId, { title: cleanTitle, content: draft.content })
         : await createDocument({ title: cleanTitle, content: draft.content });
 
-      setStatusMessage(selectedId ? "Document updated." : "Document created.");
-      await refreshDocuments(saved.id);
+      setStatusMessage(editingId ? "Document updated." : "Document created.");
+      setEditingId(saved.id);
+      setIsCreating(false);
+      setDraft({ title: saved.title, content: saved.content });
+      await refreshDocuments();
     } catch (error: unknown) {
       setStatusMessage(`Save failed: ${toErrorMessage(error)}`);
     } finally {
@@ -268,15 +286,10 @@ export default function App(): JSX.Element {
       setStatusMessage("Document deleted.");
       setSearchResults((previous) => previous.filter((result) => result.id !== documentId));
 
-      if (selectedId === documentId) {
-        setSelectedId(null);
-        setDraft(EMPTY_DRAFT);
-      }
-      if (previewId === documentId) {
-        setPreviewId(null);
+      if (editingId === documentId) {
+        closeEditor();
       }
       await refreshDocuments();
-      setActiveTab("documents");
     } catch (error: unknown) {
       setStatusMessage(`Delete failed: ${toErrorMessage(error)}`);
     }
@@ -311,67 +324,82 @@ export default function App(): JSX.Element {
     }
   }
 
+  function sortIndicator(key: DocSortKey): string {
+    if (docSortKey !== key) return "";
+    return docSortDirection === "asc" ? " \u2191" : " \u2193";
+  }
+
   return (
     <div className="page-shell">
       <div className="grid min-h-screen lg:grid-cols-[220px_minmax(0,1fr)]">
+        {/* ── Sidebar ── */}
         <aside className="flex flex-col border-r border-kb-line bg-slate-950 text-slate-100">
           <div className="border-b border-slate-800 px-4 py-4">
             <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Vector MCP</p>
             <h1 className="mt-1 text-xl font-semibold">Knowledge Admin</h1>
           </div>
 
+          <div className="border-b border-slate-800 px-3 py-3">
+            <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-slate-500">
+              Namespace
+            </label>
+            <select
+              value={namespace}
+              onChange={(event) => void switchNamespace(event.target.value)}
+              className="mb-2 h-8 w-full rounded border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-kb-accent"
+            >
+              <option value="">(default)</option>
+              {namespaces.map((ns) => (
+                <option key={ns} value={ns}>{ns}</option>
+              ))}
+            </select>
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                value={nsInput}
+                onChange={(event) => setNsInput(event.target.value)}
+                placeholder="new-namespace"
+                className="h-7 min-w-0 flex-1 rounded border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 placeholder:text-slate-600 outline-none focus:border-kb-accent"
+              />
+              <button
+                type="button"
+                className="shrink-0 rounded bg-slate-800 px-2 text-[11px] font-medium text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+                disabled={!nsInput.trim()}
+                onClick={() => {
+                  const value = nsInput.trim();
+                  if (value) {
+                    setNsInput("");
+                    void switchNamespace(value);
+                  }
+                }}
+              >
+                Go
+              </button>
+            </div>
+          </div>
+
           <nav className="space-y-1 px-3 py-3">
-            <button
-              type="button"
-              className={`w-full rounded-md px-3 py-2 text-left text-sm font-medium transition ${
-                activeTab === "documents"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-300 hover:bg-slate-900 hover:text-white"
-              }`}
-              onClick={() => setActiveTab("documents")}
-            >
-              Documents
-            </button>
-            <button
-              type="button"
-              className={`w-full rounded-md px-3 py-2 text-left text-sm font-medium transition ${
-                activeTab === "editor"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-300 hover:bg-slate-900 hover:text-white"
-              }`}
-              onClick={() => setActiveTab("editor")}
-            >
-              Editor
-            </button>
-            <button
-              type="button"
-              className={`w-full rounded-md px-3 py-2 text-left text-sm font-medium transition ${
-                activeTab === "search"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-300 hover:bg-slate-900 hover:text-white"
-              }`}
-              onClick={() => setActiveTab("search")}
-            >
-              Search
-            </button>
-            <button
-              type="button"
-              className={`w-full rounded-md px-3 py-2 text-left text-sm font-medium transition ${
-                activeTab === "settings"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-300 hover:bg-slate-900 hover:text-white"
-              }`}
-              onClick={() => setActiveTab("settings")}
-            >
-              Settings
-            </button>
+            {([
+              { id: "documents" as const, label: "Documents" },
+              { id: "search" as const, label: "Search" },
+              { id: "settings" as const, label: "Settings" },
+            ]).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`w-full rounded-md px-3 py-2 text-left text-sm font-medium transition ${
+                  activeTab === tab.id
+                    ? "bg-slate-800 text-white"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                }`}
+                onClick={() => { setActiveTab(tab.id); closeEditor(); }}
+              >
+                {tab.label}
+              </button>
+            ))}
           </nav>
 
-          <div className="mt-auto space-y-3 border-t border-slate-800 p-3">
-            <Button className="w-full" onClick={onCreateNew}>
-              Add Document
-            </Button>
-
+          <div className="mt-auto border-t border-slate-800 p-3">
             <button
               type="button"
               className="relative inline-flex h-9 w-full items-center rounded-md border border-slate-700 bg-slate-900 px-1.5 text-slate-300"
@@ -396,105 +424,152 @@ export default function App(): JSX.Element {
           </div>
         </aside>
 
+        {/* ── Main content ── */}
         <section className="flex min-h-0 flex-col bg-kb-bg">
+          {/* Top bar */}
           <header className="flex items-center justify-between border-b border-kb-line bg-kb-panel px-6 py-4">
-            <div>
+            <div className="flex items-center gap-3">
               <h2 className="text-xl font-semibold text-kb-ink">
-                {activeTab === "documents" ? "Documents" : activeTab === "editor" ? "Editor" : activeTab === "search" ? "Search" : "Settings"}
+                {activeTab === "documents"
+                  ? isEditorOpen
+                    ? editingId ? "Edit Document" : "New Document"
+                    : "Documents"
+                  : activeTab === "search"
+                    ? "Search"
+                    : "Settings"}
               </h2>
+              {activeTab === "documents" && !isEditorOpen ? (
+                <Button size="sm" onClick={onCreateNew}>
+                  Add New
+                </Button>
+              ) : null}
             </div>
-            <Button variant="outline" onClick={() => void refreshDocuments()}>
+            <Button variant="outline" size="sm" onClick={() => void refreshDocuments()}>
               Refresh
             </Button>
           </header>
 
+          {/* Status bar */}
           <div className="border-b border-kb-line bg-kb-panel/80 px-6 py-2 font-mono text-xs text-kb-soft">
             {statusMessage}
           </div>
 
+          {/* Content area */}
           <div className="min-h-0 flex-1 overflow-auto p-6">
+
+            {/* ── Documents tab ── */}
             {activeTab === "documents" ? (
-              previewDocument ? (
-                <div className="mx-auto w-full max-w-[1000px] space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-kb-ink">{previewDocument.title}</h3>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" onClick={() => setPreviewId(null)}>
-                        Back
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => void openEditorForDocument(previewDocument.id)}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        onClick={() => void onDeleteDocument(previewDocument.id)}
-                      >
-                        Delete
-                      </Button>
+              isEditorOpen ? (
+                /* ── Editor (inline within Documents) ── */
+                <div className="mx-auto w-full max-w-[860px]">
+                  <button
+                    type="button"
+                    className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-kb-accent hover:underline"
+                    onClick={closeEditor}
+                  >
+                    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10 2L4 8l6 6" />
+                    </svg>
+                    All Documents
+                  </button>
+
+                  <form className="space-y-5" onSubmit={(event) => void onSave(event)}>
+                    <div>
+                      <Input
+                        id="doc-title"
+                        value={draft.title}
+                        onChange={(event) =>
+                          setDraft((previous) => ({ ...previous, title: event.target.value }))
+                        }
+                        placeholder="Document title"
+                        className="h-12 border-0 border-b border-kb-line bg-transparent px-0 text-2xl font-semibold text-kb-ink shadow-none ring-0 placeholder:text-kb-soft/50 focus-visible:border-kb-accent focus-visible:ring-0"
+                      />
                     </div>
-                  </div>
-                  <p className="text-xs text-kb-soft">
-                    Last updated {formatTimestamp(previewDocument.updated_at)}
-                  </p>
-                  <div className="rounded-md border border-kb-line bg-kb-panel p-4">
-                    <pre className="whitespace-pre-wrap text-sm text-kb-ink">{previewDocument.content || "(No content)"}</pre>
-                  </div>
+
+                    <div>
+                      <Textarea
+                        id="doc-content"
+                        className="min-h-[520px] resize-y rounded-lg border-kb-line bg-kb-panel text-sm leading-relaxed text-kb-ink"
+                        value={draft.content}
+                        onChange={(event) =>
+                          setDraft((previous) => ({ ...previous, content: event.target.value }))
+                        }
+                        placeholder="Write your knowledge entry here..."
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {editingId ? (
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => void onDeleteDocument(editingId)}
+                          >
+                            Delete
+                          </Button>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={closeEditor}>
+                          Cancel
+                        </Button>
+                        <Button type="submit" size="sm" disabled={saving}>
+                          {saving ? "Saving..." : editingId ? "Update" : "Publish"}
+                        </Button>
+                      </div>
+                    </div>
+                  </form>
                 </div>
               ) : (
+                /* ── Document list ── */
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                       <label className="text-sm text-kb-soft" htmlFor="rows-per-page">
-                        Records per page
+                        Show
                       </label>
                       <select
                         id="rows-per-page"
                         value={rowsPerPage}
                         onChange={(event) => setRowsPerPage(Number(event.target.value))}
-                        className="h-9 rounded-md border border-kb-line bg-kb-panel px-2 text-sm text-kb-ink"
+                        className="h-8 rounded-md border border-kb-line bg-kb-panel px-2 text-sm text-kb-ink"
                       >
                         <option value={10}>10</option>
                         <option value={20}>20</option>
                         <option value={50}>50</option>
                       </select>
+                      <span className="text-sm text-kb-soft">entries</span>
                     </div>
                     <Input
                       value={docQuery}
                       onChange={(event) => setDocQuery(event.target.value)}
-                      placeholder="Search documents"
-                      className="max-w-[320px]"
+                      placeholder="Filter documents..."
+                      className="h-8 max-w-[280px] text-sm"
                     />
                   </div>
 
-                  <div className="overflow-x-auto rounded-md border border-kb-line bg-kb-panel">
+                  <div className="overflow-x-auto rounded-lg border border-kb-line bg-kb-panel">
                     <table className="min-w-full border-collapse text-sm">
-                      <thead className="bg-slate-100 text-left dark:bg-kb-bg/70">
-                        <tr>
-                          <th className="px-3 py-2">
+                      <thead>
+                        <tr className="border-b border-kb-line bg-slate-50 dark:bg-kb-bg/60">
+                          <th className="px-4 py-2.5 text-left">
                             <button
                               type="button"
-                              className="inline-flex items-center gap-1 font-semibold text-kb-ink"
+                              className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-kb-soft hover:text-kb-ink"
                               onClick={() => onSortDocuments("title")}
                             >
-                              Title
-                              <span className="text-kb-soft">
-                                {docSortKey === "title" ? (docSortDirection === "asc" ? "^" : "v") : "<>"}
-                              </span>
+                              Title{sortIndicator("title")}
                             </button>
                           </th>
-                          <th className="px-3 py-2 text-right">
+                          <th className="w-[180px] px-4 py-2.5 text-right">
                             <button
                               type="button"
-                              className="inline-flex items-center gap-1 font-semibold text-kb-ink"
+                              className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-kb-soft hover:text-kb-ink"
                               onClick={() => onSortDocuments("updated_at")}
                             >
-                              Updated
-                              <span className="text-kb-soft">
-                                {docSortKey === "updated_at" ? (docSortDirection === "asc" ? "^" : "v") : "<>"}
-                              </span>
+                              Modified{sortIndicator("updated_at")}
                             </button>
                           </th>
                         </tr>
@@ -502,25 +577,53 @@ export default function App(): JSX.Element {
                       <tbody>
                         {loading ? (
                           <tr>
-                            <td colSpan={2} className="px-3 py-8 text-center text-kb-soft">
+                            <td colSpan={2} className="px-4 py-10 text-center text-kb-soft">
                               Loading...
                             </td>
                           </tr>
                         ) : pagedDocs.length === 0 ? (
                           <tr>
-                            <td colSpan={2} className="px-3 py-8 text-center text-kb-soft">
-                              No documents found.
+                            <td colSpan={2} className="px-4 py-10 text-center text-kb-soft">
+                              {docQuery ? "No documents match your filter." : "No documents yet. Click \"Add New\" to create one."}
                             </td>
                           </tr>
                         ) : (
                           pagedDocs.map((document) => (
                             <tr
                               key={document.id}
-                              className="cursor-pointer border-t border-kb-line bg-kb-panel hover:bg-kb-accent/10 transition"
-                              onClick={() => setPreviewId(document.id)}
+                              className="group border-t border-kb-line transition hover:bg-kb-accent/5"
                             >
-                              <td className="px-3 py-2 font-medium text-kb-ink">{document.title}</td>
-                              <td className="px-3 py-2 text-right text-kb-soft">{formatTimestamp(document.updated_at)}</td>
+                              <td className="px-4 py-2.5">
+                                <div>
+                                  <button
+                                    type="button"
+                                    className="font-medium text-kb-accent hover:underline"
+                                    onClick={() => void openEditorForDocument(document.id)}
+                                  >
+                                    {document.title}
+                                  </button>
+                                  <div className="mt-0.5 flex items-center gap-2 text-xs opacity-0 transition-opacity group-hover:opacity-100">
+                                    <button
+                                      type="button"
+                                      className="text-kb-accent hover:underline"
+                                      onClick={() => void openEditorForDocument(document.id)}
+                                    >
+                                      Edit
+                                    </button>
+                                    <span className="text-kb-line">|</span>
+                                    <button
+                                      type="button"
+                                      className="text-kb-danger hover:underline"
+                                      onClick={() => void onDeleteDocument(document.id)}
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-2.5 text-right text-xs text-kb-soft">
+                                {formatTimestamp(document.updated_at)}
+                              </td>
                             </tr>
                           ))
                         )}
@@ -530,88 +633,38 @@ export default function App(): JSX.Element {
 
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-kb-soft">
-                      Showing page {Math.min(docPage, totalPages)} of {totalPages} ({filteredDocs.length} records)
+                      {filteredDocs.length} document{filteredDocs.length === 1 ? "" : "s"}
+                      {filteredDocs.length !== documents.length ? ` (filtered from ${documents.length})` : ""}
                     </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={docPage <= 1}
-                        onClick={() => setDocPage((value) => Math.max(1, value - 1))}
-                      >
-                        Prev
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={docPage >= totalPages}
-                        onClick={() => setDocPage((value) => Math.min(totalPages, value + 1))}
-                      >
-                        Next
-                      </Button>
-                    </div>
+                    {totalPages > 1 ? (
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={docPage <= 1}
+                          onClick={() => setDocPage((value) => Math.max(1, value - 1))}
+                        >
+                          Prev
+                        </Button>
+                        <span className="px-2 text-xs tabular-nums text-kb-soft">
+                          {Math.min(docPage, totalPages)} / {totalPages}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={docPage >= totalPages}
+                          onClick={() => setDocPage((value) => Math.min(totalPages, value + 1))}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               )
             ) : null}
 
-            {activeTab === "editor" ? (
-              <div className="mx-auto w-full max-w-[1000px] space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-kb-ink">
-                    {selectedId ? "Edit document" : "Create document"}
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={() => setActiveTab("documents")}>
-                      Back to documents
-                    </Button>
-                    {selectedId ? (
-                      <Button variant="destructive" onClick={() => void onDeleteDocument(selectedId)}>
-                        Delete
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-
-                <form className="space-y-4" onSubmit={(event) => void onSave(event)}>
-                  <div className="space-y-1">
-                    <label htmlFor="doc-title" className="text-sm text-kb-soft">
-                      Title
-                    </label>
-                    <Input
-                      id="doc-title"
-                      value={draft.title}
-                      onChange={(event) =>
-                        setDraft((previous) => ({ ...previous, title: event.target.value }))
-                      }
-                      placeholder="Document title"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label htmlFor="doc-content" className="text-sm text-kb-soft">
-                      Content
-                    </label>
-                    <Textarea
-                      id="doc-content"
-                      className="min-h-[520px] resize-y"
-                      value={draft.content}
-                      onChange={(event) =>
-                        setDraft((previous) => ({ ...previous, content: event.target.value }))
-                      }
-                      placeholder="Write your knowledge entry here"
-                    />
-                  </div>
-
-                  <div className="flex justify-end">
-                    <Button type="submit" disabled={saving}>
-                      {saving ? "Saving..." : "Save"}
-                    </Button>
-                  </div>
-                </form>
-              </div>
-            ) : null}
-
+            {/* ── Search tab ── */}
             {activeTab === "search" ? (
               <div className="space-y-4">
                 <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px_140px]" onSubmit={(event) => void onRunSearch(event)}>
@@ -639,30 +692,30 @@ export default function App(): JSX.Element {
                   </Button>
                 </form>
 
-                <div className="overflow-x-auto rounded-md border border-kb-line bg-kb-panel">
+                <div className="overflow-x-auto rounded-lg border border-kb-line bg-kb-panel">
                   <table className="min-w-full border-collapse text-sm">
-                    <thead className="bg-slate-100 text-left dark:bg-kb-bg/70">
-                      <tr>
-                        <th className="px-3 py-2 font-semibold text-kb-ink">Title</th>
-                        <th className="px-3 py-2 font-semibold text-kb-ink">Score</th>
-                        <th className="px-3 py-2 font-semibold text-kb-ink">Preview</th>
-                        <th className="px-3 py-2 text-right font-semibold text-kb-ink">Actions</th>
+                    <thead>
+                      <tr className="border-b border-kb-line bg-slate-50 dark:bg-kb-bg/60">
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-kb-soft">Title</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-kb-soft">Score</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-kb-soft">Preview</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-kb-soft">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {searchResults.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="px-3 py-8 text-center text-kb-soft">
+                          <td colSpan={4} className="px-4 py-10 text-center text-kb-soft">
                             No results yet.
                           </td>
                         </tr>
                       ) : (
                         searchResults.map((result) => (
-                          <tr key={result.id} className="border-t border-kb-line bg-kb-panel">
-                            <td className="px-3 py-2 align-top font-medium text-kb-ink">{result.title}</td>
-                            <td className="px-3 py-2 align-top text-kb-soft">{result.score.toFixed(3)}</td>
-                            <td className="px-3 py-2 align-top text-kb-soft">{result.content_preview}</td>
-                            <td className="px-3 py-2">
+                          <tr key={result.id} className="border-t border-kb-line transition hover:bg-kb-accent/5">
+                            <td className="px-4 py-2.5 align-top font-medium text-kb-ink">{result.title}</td>
+                            <td className="px-4 py-2.5 align-top tabular-nums text-kb-soft">{result.score.toFixed(3)}</td>
+                            <td className="px-4 py-2.5 align-top text-kb-soft">{result.content_preview}</td>
+                            <td className="px-4 py-2.5">
                               <div className="flex justify-end gap-2">
                                 <Button
                                   size="sm"
@@ -682,6 +735,7 @@ export default function App(): JSX.Element {
               </div>
             ) : null}
 
+            {/* ── Settings tab ── */}
             {activeTab === "settings" ? (
               <div className="max-w-[900px] text-sm text-kb-soft">
                 Settings is reserved for upcoming features.
