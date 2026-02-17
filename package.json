@@ -2,9 +2,9 @@
   "name": "knowledge-base",
   "private": true,
   "scripts": {
-    "dev": "docker compose -f docker-compose.dev.yml up --build",
-    "dev:down": "docker compose -f docker-compose.dev.yml down",
-    "start": "docker compose up --build -d",
-    "stop": "docker compose down"
+    "dev": "docker compose -p lore-db-dev -f docker-compose.dev.yml up --build",
+    "dev:down": "docker compose -p lore-db-dev -f docker-compose.dev.yml down",
+    "start": "docker compose -p lore-db up --build -d",
+    "stop": "docker compose -p lore-db down"
   }
 }
