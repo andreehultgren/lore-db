@@ -17,15 +17,12 @@ const ThemeToggle: React.FC<ThemeToggleProps> = ({ onToggle, value }) => {
         onToggle?.(newMode);
       }}
       className={`
-        relative flex items-center justify-center 
-        h-10 w-10 rounded-full 
+        relative flex items-center justify-center
+        h-10 w-10 shrink-0 rounded-full
+        border border-slate-700 bg-slate-900
         transition-all duration-300 ease-in-out
-        focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2
-        ${
-          isDark
-            ? "bg-slate-800 text-yellow-300 hover:bg-slate-700 hover:shadow-[0_0_15px_rgba(253,224,71,0.4)]"
-            : "bg-white text-orange-500 border border-slate-200 hover:bg-slate-50 hover:shadow-md"
-        }
+        hover:border-slate-600
+        ${isDark ? "text-yellow-300" : "text-orange-400"}
       `}
       aria-label="Toggle Dark Mode"
     >
