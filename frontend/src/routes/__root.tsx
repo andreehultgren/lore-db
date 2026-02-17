@@ -2,7 +2,6 @@ import {
   createRootRouteWithContext,
   Link,
   Outlet,
-  useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -10,6 +9,7 @@ import { useEffect, useState } from "react";
 import { listNamespaces, reloadDatabase, setNamespace } from "@/api";
 import { type AppContext, AppContextValue, type ThemeMode } from "@/context";
 import LightDarkModeButton from "@/components/LightDarkModeButton";
+import NamespaceSelector from "@/components/NamespaceSelector";
 
 type SearchParams = { ns?: string };
 
@@ -17,9 +17,7 @@ function RootLayout(): JSX.Element {
   const [statusMessage, setStatusMessage] = useState<string>("Ready.");
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [namespaces, setNamespaces] = useState<string[]>([]);
-  const [nsInput, setNsInput] = useState<string>("");
 
-  const navigate = useNavigate();
   const routerState = useRouterState();
   const currentNs = (routerState.location.search as SearchParams).ns ?? "";
 
@@ -95,50 +93,6 @@ function RootLayout(): JSX.Element {
               <h1 className="mt-1 text-xl font-semibold">Knowledge Admin</h1>
             </div>
 
-            <div className="border-b border-slate-800 px-3 py-3">
-              <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-slate-500">
-                Namespace
-              </label>
-              <select
-                value={currentNs}
-                onChange={(event) => {
-                  const ns = event.target.value;
-                  void switchNamespace(ns);
-                }}
-                className="mb-2 h-8 w-full rounded border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-kb-accent"
-              >
-                <option value="">(default)</option>
-                {namespaces.map((ns) => (
-                  <option key={ns} value={ns}>
-                    {ns}
-                  </option>
-                ))}
-              </select>
-              <div className="flex gap-1.5">
-                <input
-                  type="text"
-                  value={nsInput}
-                  onChange={(event) => setNsInput(event.target.value)}
-                  placeholder="new-namespace"
-                  className="h-7 min-w-0 flex-1 rounded border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 placeholder:text-slate-600 outline-none focus:border-kb-accent"
-                />
-                <button
-                  type="button"
-                  className="shrink-0 rounded bg-slate-800 px-2 text-[11px] font-medium text-slate-300 hover:bg-slate-700 disabled:opacity-40"
-                  disabled={!nsInput.trim()}
-                  onClick={() => {
-                    const value = nsInput.trim();
-                    if (value) {
-                      setNsInput("");
-                      void switchNamespace(value);
-                    }
-                  }}
-                >
-                  Go
-                </button>
-              </div>
-            </div>
-
             <nav className="space-y-1 px-3 py-3">
               {navItems.map((item) => (
                 <Link
@@ -157,7 +111,10 @@ function RootLayout(): JSX.Element {
               ))}
             </nav>
 
-            <div className="mt-auto border-t border-slate-800 p-3 flex justify-center">
+            <div className="mt-auto border-t border-slate-800 px-3 py-3 flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <NamespaceSelector />
+              </div>
               <LightDarkModeButton
                 value={themeMode}
                 onToggle={(mode) => setThemeMode(mode)}
@@ -181,20 +138,6 @@ function RootLayout(): JSX.Element {
       </div>
     </AppContextValue.Provider>
   );
-
-  async function switchNamespace(ns: string): Promise<void> {
-    setNamespace(ns);
-    setStatusMessage(
-      ns ? `Switched to namespace "${ns}".` : "Switched to default namespace.",
-    );
-    try {
-      await reloadDatabase();
-    } catch {
-      // Ignore reload failures.
-    }
-    await fetchNamespaces();
-    void navigate({ search: { ns: ns || undefined } });
-  }
 }
 
 export const Route = createRootRouteWithContext<AppContext>()({
