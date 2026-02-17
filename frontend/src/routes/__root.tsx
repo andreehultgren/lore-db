@@ -88,9 +88,9 @@ function RootLayout(): JSX.Element {
           <aside className="flex flex-col border-r border-kb-line bg-slate-950 text-slate-100">
             <div className="border-b border-slate-800 px-4 py-4">
               <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                Vector MCP
+                Knowledge Database
               </p>
-              <h1 className="mt-1 text-xl font-semibold">Knowledge Admin</h1>
+              <h1 className="mt-1 text-xl font-semibold">LORE DB</h1>
             </div>
 
             <nav className="space-y-1 px-3 py-3">
