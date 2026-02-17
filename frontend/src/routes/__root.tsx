@@ -1,4 +1,4 @@
-import { createRootRouteWithContext, Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { createRootRouteWithContext, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { listNamespaces, reloadDatabase, setNamespace } from "@/api";
@@ -34,6 +34,7 @@ function RootLayout(): JSX.Element {
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [nsInput, setNsInput] = useState<string>("");
 
+  const navigate = useNavigate();
   const routerState = useRouterState();
   const currentNs = (routerState.location.search as SearchParams).ns ?? "";
 
@@ -215,9 +216,7 @@ function RootLayout(): JSX.Element {
       // Ignore reload failures.
     }
     await fetchNamespaces();
-    // Navigate to current route with new ns param — TanStack Router handles the re-render
-    window.history.replaceState(null, "", `${window.location.pathname}${ns ? `?ns=${encodeURIComponent(ns)}` : ""}`);
-    window.location.reload();
+    void navigate({ search: { ns: ns || undefined } });
   }
 }
 
