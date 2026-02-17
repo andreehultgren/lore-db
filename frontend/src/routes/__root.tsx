@@ -83,7 +83,7 @@ function RootLayout(): JSX.Element {
   return (
     <AppContextValue.Provider value={appContext}>
       <div className="page-shell">
-        <div className="grid min-h-screen lg:grid-cols-[220px_minmax(0,1fr)]">
+        <div className="grid h-screen lg:grid-cols-[220px_minmax(0,1fr)]">
           {/* Sidebar */}
           <aside className="flex flex-col border-r border-kb-line bg-slate-950 text-slate-100">
             <div className="border-b border-slate-800 px-4 py-4">
@@ -124,15 +124,15 @@ function RootLayout(): JSX.Element {
 
           {/* Main content */}
           <section className="flex min-h-0 flex-col bg-kb-bg">
-            {/* Status bar */}
-            <div className="border-b border-kb-line bg-kb-panel/80 px-6 py-2 font-mono text-xs text-kb-soft">
-              {statusMessage}
-            </div>
-
             {/* Content area */}
             <div className="min-h-0 flex-1 overflow-auto">
               <Outlet />
             </div>
+
+            {/* Status bar
+            <div className="border-t border-kb-line bg-kb-panel/80 px-6 py-2 font-mono text-xs text-kb-soft">
+              {statusMessage}
+            </div> */}
           </section>
         </div>
       </div>
