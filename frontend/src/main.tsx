@@ -1,8 +1,27 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { createRouter, RouterProvider } from "@tanstack/react-router";
 
-import App from "./App";
+import { routeTree } from "./routeTree.gen";
 import "./index.css";
+
+const router = createRouter({
+  routeTree,
+  context: {
+    statusMessage: "Ready.",
+    setStatusMessage: () => {},
+    theme: "light",
+    setTheme: () => {},
+    namespaces: [],
+    fetchNamespaces: async () => {}
+  }
+});
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
+}
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
@@ -11,6 +30,6 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <React.StrictMode>
-    <App />
+    <RouterProvider router={router} />
   </React.StrictMode>
 );
