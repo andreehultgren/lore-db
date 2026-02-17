@@ -1,0 +1,48 @@
+@import url("https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --kb-bg: 214 32% 96%;
+    --kb-panel: 0 0% 100%;
+    --kb-ink: 222 32% 16%;
+    --kb-soft: 218 12% 43%;
+    --kb-line: 215 24% 87%;
+    --kb-accent: 221 72% 52%;
+    --kb-accent-strong: 221 72% 46%;
+    --kb-danger: 0 72% 52%;
+  }
+
+  .dark {
+    --kb-bg: 223 31% 10%;
+    --kb-panel: 222 24% 14%;
+    --kb-ink: 210 24% 95%;
+    --kb-soft: 217 15% 70%;
+    --kb-line: 223 18% 25%;
+    --kb-accent: 221 80% 62%;
+    --kb-accent-strong: 221 80% 56%;
+    --kb-danger: 0 72% 56%;
+  }
+
+  * {
+    @apply border-kb-line;
+  }
+
+  body {
+    @apply min-h-screen bg-kb-bg font-sans text-kb-ink antialiased;
+    background-color: hsl(var(--kb-bg));
+  }
+}
+
+@layer components {
+  .page-shell {
+    @apply min-h-screen w-full;
+  }
+
+  .glass-panel {
+    @apply rounded-lg border border-kb-line bg-kb-panel shadow-panel;
+  }
+}
