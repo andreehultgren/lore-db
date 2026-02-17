@@ -1,15 +1,10 @@
 {
   "mcpServers": {
     "knowledge-base": {
-      "type": "stdio",
-      "command": "bash",
-      "args": [
-        "-c",
-        "cd /Users/andreehultgren/personal_knowledge_base/backend && .venv/bin/python -m app.mcp_server"
-      ],
-      "env": {
-        "KB_API_BASE": "http://localhost:8080/api",
-        "KB_NAMESPACE": "lore-db"
+      "type": "sse",
+      "url": "http://localhost:8080/mcp/sse",
+      "headers": {
+        "X-KB-Namespace": "lore-db"
       }
     }
   }

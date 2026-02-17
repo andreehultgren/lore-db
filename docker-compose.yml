@@ -9,6 +9,21 @@ services:
       - ./.localdata/backend:/data
     restart: unless-stopped
 
+  mcp:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.mcp_server"]
+    environment:
+      KB_API_BASE: http://backend:8000
+      KB_NAMESPACE: lore-db
+      MCP_TRANSPORT: sse
+      MCP_MOUNT_PATH: /mcp
+      FASTMCP_HOST: 0.0.0.0
+    depends_on:
+      - backend
+    restart: unless-stopped
+
   frontend:
     build:
       context: .

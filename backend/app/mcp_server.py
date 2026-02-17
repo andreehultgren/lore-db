@@ -1,3 +1,4 @@
+import contextvars
 import json
 import os
 from urllib import error, parse, request
@@ -8,7 +9,35 @@ from .service import get_kb
 
 mcp = FastMCP("vector-knowledge-base")
 API_BASE = os.getenv("KB_API_BASE", "").rstrip("/")
-NAMESPACE = os.getenv("KB_NAMESPACE", "")
+
+# Per-request namespace resolved from the X-KB-Namespace header (SSE transport)
+# or from the KB_NAMESPACE env var (stdio transport / fallback).
+_namespace_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "namespace", default=None
+)
+
+
+def _get_namespace() -> str:
+    """Return the active namespace, preferring the per-request context var."""
+    ctx = _namespace_ctx.get()
+    if ctx:  # None or "" → fall back to env var
+        return ctx
+    return os.getenv("KB_NAMESPACE", "")
+
+
+class _NamespaceMiddleware:
+    """ASGI middleware that reads X-KB-Namespace from every HTTP request
+    and stores it in _namespace_ctx so tool functions can access it."""
+
+    def __init__(self, app):
+        self._app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            ns = headers.get(b"x-kb-namespace", b"").decode()
+            _namespace_ctx.set(ns or None)
+        await self._app(scope, receive, send)
 
 
 def _has_api_proxy() -> bool:
@@ -28,8 +57,9 @@ def _api_request(
         body = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
 
-    if NAMESPACE:
-        headers["X-KB-Namespace"] = NAMESPACE
+    ns = _get_namespace()
+    if ns:
+        headers["X-KB-Namespace"] = ns
     req = request.Request(url=url, data=body, headers=headers, method=method)
     try:
         with request.urlopen(req, timeout=10) as response:
@@ -50,7 +80,7 @@ def list_documents() -> list[dict]:
     if _has_api_proxy():
         data = _api_request("GET", "/documents")
         return data if isinstance(data, list) else []
-    return get_kb(NAMESPACE).list_documents()
+    return get_kb(_get_namespace()).list_documents()
 
 
 @mcp.tool()
@@ -61,7 +91,7 @@ def get_document(document_id: str) -> dict:
         data = _api_request("GET", f"/documents/{safe_id}")
         return {"ok": True, "document": data}
 
-    document = get_kb(NAMESPACE).get_document(document_id)
+    document = get_kb(_get_namespace()).get_document(document_id)
     if document is None:
         return {"ok": False, "error": "Document not found", "document_id": document_id}
     return {"ok": True, "document": document}
@@ -76,7 +106,7 @@ def create_document(title: str, content: str = "") -> dict:
         )
         return {"ok": True, "document": document}
 
-    document = get_kb(NAMESPACE).create_document(title=title.strip(), content=content)
+    document = get_kb(_get_namespace()).create_document(title=title.strip(), content=content)
     return {"ok": True, "document": document}
 
 
@@ -106,13 +136,13 @@ def update_document(
         )
         return {"ok": True, "document": updated}
 
-    current = get_kb(NAMESPACE).get_document(document_id)
+    current = get_kb(_get_namespace()).get_document(document_id)
     if current is None:
         return {"ok": False, "error": "Document not found", "document_id": document_id}
 
     next_title = title.strip() if title is not None else current["title"]
     next_content = content if content is not None else current["content"]
-    updated = get_kb(NAMESPACE).update_document(
+    updated = get_kb(_get_namespace()).update_document(
         document_id=document_id,
         title=next_title,
         content=next_content,
@@ -128,7 +158,7 @@ def delete_document(document_id: str) -> dict:
         _api_request("DELETE", f"/documents/{safe_id}")
         return {"ok": True, "document_id": document_id}
 
-    deleted = get_kb(NAMESPACE).delete_document(document_id=document_id)
+    deleted = get_kb(_get_namespace()).delete_document(document_id=document_id)
     if not deleted:
         return {"ok": False, "error": "Document not found", "document_id": document_id}
     return {"ok": True, "document_id": document_id}
@@ -142,9 +172,31 @@ def search_documents(query: str, limit: int = 5) -> dict:
         results = _api_request("POST", "/search", {"query": query, "limit": safe_limit})
         return {"ok": True, "query": query, "results": results}
 
-    results = get_kb(NAMESPACE).search(query=query, limit=safe_limit)
+    results = get_kb(_get_namespace()).search(query=query, limit=safe_limit)
     return {"ok": True, "query": query, "results": results}
 
 
+def build_sse_app(mount_path: str = "/mcp"):
+    """Return a Starlette app with the MCP SSE app mounted at *mount_path*.
+
+    Mounting via Starlette's Mount propagates the correct ASGI root_path into
+    the inner SSE app so it advertises ``<mount_path>/messages/`` as the
+    messages endpoint — matching what the reverse proxy exposes externally.
+    """
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+
+    return Starlette(routes=[Mount(mount_path, app=_NamespaceMiddleware(mcp.sse_app()))])
+
+
 if __name__ == "__main__":
-    mcp.run()
+    transport = os.getenv("MCP_TRANSPORT", "stdio")
+    if transport == "sse":
+        import uvicorn
+
+        host = os.getenv("FASTMCP_HOST", "127.0.0.1")
+        port = int(os.getenv("FASTMCP_PORT", "8000"))
+        mount_path = os.getenv("MCP_MOUNT_PATH", "/mcp")
+        uvicorn.run(build_sse_app(mount_path), host=host, port=port)
+    else:
+        mcp.run(transport=transport)

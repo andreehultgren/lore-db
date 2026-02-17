@@ -1,6 +1,7 @@
 # Vector Knowledge Base (Python + React + MCP)
 
 A local vector-based knowledge base with:
+
 - Python backend for persistence, embeddings, REST API, and MCP tools
 - React + TypeScript frontend using shadcn-style UI components
 - SQLite storage for documents and vectors
@@ -21,122 +22,58 @@ A local vector-based knowledge base with:
 
 ## Quick Start (Docker Compose)
 
-Runs everything behind one reverse-proxy port:
-- GUI: `http://localhost:8080`
-- API base: `http://localhost:8080/api`
-- Health: `http://localhost:8080/health`
-
-Start:
+The entire project is buildable with docker compose.
 
 ```bash
-cd /Users/andreehultgren/personal_knowledge_base
-docker compose up --build -d
-```
-
-Stop:
-
-```bash
-docker compose down
+docker compose up -d
 ```
 
 Persistent storage:
+
 - SQLite DB is stored on host at:
   - `.localdata/backend/knowledge_base.db`
 - `.localdata/` is gitignored.
 
-## Run Backend (API)
+## Quick Start (npm)
 
 ```bash
-cd /Users/andreehultgren/personal_knowledge_base/backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.api:app --reload --host 0.0.0.0 --port 8000
+npm install
+npm run start
 ```
 
-Optional env vars:
-- `KB_DB_PATH` (default: `backend/data/knowledge_base.db`)
-
-## Run MCP Server
+## Dev mode (npm)
 
 ```bash
-cd /Users/andreehultgren/personal_knowledge_base/backend
-source .venv/bin/activate
-python -m app.mcp_server
-```
-
-Example MCP client config:
-
-```json
-{
-  "mcpServers": {
-    "vector-kb": {
-      "command": "/Users/andreehultgren/personal_knowledge_base/backend/.venv/bin/python",
-      "args": ["-m", "app.mcp_server"],
-      "cwd": "/Users/andreehultgren/personal_knowledge_base/backend"
-    }
-  }
-}
-```
-
-If you run with Docker Compose and want MCP via the running container:
-
-```json
-{
-  "mcpServers": {
-    "vector-kb-docker": {
-      "command": "docker",
-      "args": [
-        "compose",
-        "-f",
-        "/Users/andreehultgren/personal_knowledge_base/docker-compose.yml",
-        "exec",
-        "-T",
-        "backend",
-        "python",
-        "-m",
-        "app.mcp_server"
-      ],
-      "cwd": "/Users/andreehultgren/personal_knowledge_base"
-    }
-  }
-}
-```
-
-If your GUI/API runs in Docker and MCP runs on host Python, prefer API proxy mode to avoid SQLite lock/corruption issues across host/container file access:
-
-```json
-{
-  "mcpServers": {
-    "localknowledgebase": {
-      "command": "/Users/andreehultgren/personal_knowledge_base/backend/.venv/bin/python",
-      "args": ["-m", "app.mcp_server"],
-      "cwd": "/Users/andreehultgren/personal_knowledge_base/backend",
-      "env": {
-        "KB_API_BASE": "http://localhost:8080/api"
-      }
-    }
-  }
-}
-```
-
-## Run Frontend (React + TypeScript)
-
-```bash
-cd /Users/andreehultgren/personal_knowledge_base/frontend
 npm install
 npm run dev
 ```
 
-Optional env vars:
-- `VITE_API_BASE` (default: `http://localhost:8000`)
+## Initialize MCP server
 
-## API Endpoints
+### Claude
 
-- `GET /health`
-- `GET /documents`
-- `GET /documents/{id}`
-- `POST /documents`
-- `PUT /documents/{id}`
-- `DELETE /documents/{id}`
-- `POST /search`
+Make sure the services are running (`docker compose up -d`).
+
+Then add a `.mcp.json` in the same directory as where you start Claude.
+
+```json
+{
+  "mcpServers": {
+    "knowledge-base": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "compose",
+        "exec",
+        "-T",
+        "-e",
+        "KB_NAMESPACE=lore-db",
+        "backend",
+        "python",
+        "-m",
+        "app.mcp_server"
+      ]
+    }
+  }
+}
+```
