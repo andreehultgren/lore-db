@@ -1,1 +1,1 @@
-"""Vector knowledge base backend package."""
+"""Lore DB base backend package."""

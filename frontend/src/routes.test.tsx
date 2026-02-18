@@ -17,7 +17,24 @@ import type { AppContext } from "@/context";
 vi.mock("@/api", () => ({
   setNamespace: vi.fn(),
   getNamespace: vi.fn(() => ""),
-  listDocuments: vi.fn(() => Promise.resolve([])),
+  listDocuments: vi.fn(() =>
+    Promise.resolve([
+      {
+        id: "doc-1",
+        title: "Test Doc",
+        content: "Test content",
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+      {
+        id: "doc-2",
+        title: "Another Doc",
+        content: "More content",
+        created_at: "2026-01-02T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z",
+      },
+    ]),
+  ),
   listNamespaces: vi.fn(() => Promise.resolve(["ns1", "ns2"])),
   reloadDatabase: vi.fn(() => Promise.resolve({ status: "ok" })),
   getDocument: vi.fn(() =>
@@ -68,6 +85,9 @@ function createTestRouter(initialUrl: string) {
     component: () => (
       <div>
         <nav data-testid="sidebar">
+          <Link to="/" search={(prev) => prev} data-testid="lore-db-link">
+            LORE DB
+          </Link>
           <Link to="/documents" search={(prev) => prev}>
             Documents
           </Link>
@@ -88,9 +108,7 @@ function createTestRouter(initialUrl: string) {
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    beforeLoad: () => {
-      throw redirect({ to: "/documents" });
-    },
+    component: () => <div data-testid="dashboard-page">Dashboard</div>,
   });
 
   const documentsIndexRoute = createRoute({
@@ -150,12 +168,12 @@ beforeEach(() => {
 });
 
 describe("Route structure", () => {
-  it("redirects / to /documents", async () => {
+  it("renders dashboard at /", async () => {
     const router = createTestRouter("/");
     render(<RouterProvider router={router} />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("documents-page")).toBeInTheDocument();
+      expect(screen.getByTestId("dashboard-page")).toBeInTheDocument();
     });
   });
 
@@ -254,9 +272,25 @@ describe("Sidebar navigation", () => {
       expect(screen.getByTestId("sidebar")).toBeInTheDocument();
     });
 
+    expect(screen.getByText("LORE DB")).toBeInTheDocument();
     expect(screen.getByText("Documents")).toBeInTheDocument();
     expect(screen.getByText("Search")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
+  });
+
+  it("navigates to dashboard when clicking LORE DB title", async () => {
+    const router = createTestRouter("/documents");
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("documents-page")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTestId("lore-db-link"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-page")).toBeInTheDocument();
+    });
   });
 
   it("navigates to search when clicking Search link", async () => {

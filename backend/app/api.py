@@ -10,7 +10,7 @@ from .models import (
 )
 from .service import get_kb, list_namespaces, reload_kb
 
-app = FastAPI(title="Vector Knowledge Base API", version="0.1.0")
+app = FastAPI(title="Lore DB API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,

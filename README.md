@@ -1,4 +1,4 @@
-# Vector Knowledge Base (Python + React + MCP)
+# Lore DB (Python + React + MCP)
 
 A local vector-based knowledge base with:
 

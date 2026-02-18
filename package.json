@@ -5,6 +5,7 @@
     "dev": "docker compose -p lore-db-dev -f docker-compose.dev.yml up --build",
     "dev:down": "docker compose -p lore-db-dev -f docker-compose.dev.yml down",
     "start": "docker compose -p lore-db up --build -d",
-    "stop": "docker compose -p lore-db down"
+    "stop": "docker compose -p lore-db down",
+    "restart": "docker compose -p lore-db down && docker compose -p lore-db up --build -d"
   }
 }

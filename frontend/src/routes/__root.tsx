@@ -90,7 +90,13 @@ function RootLayout(): JSX.Element {
               <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">
                 Knowledge Database
               </p>
-              <h1 className="mt-1 text-xl font-semibold">LORE DB</h1>
+              <Link
+                to="/"
+                search={{ ns: currentNs || undefined }}
+                className="mt-1 block text-xl font-semibold text-white hover:text-slate-300 transition-colors"
+              >
+                LORE DB
+              </Link>
             </div>
 
             <nav className="space-y-1 px-3 py-3">
