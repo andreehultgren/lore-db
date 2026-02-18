@@ -19,7 +19,7 @@ services:
     environment:
       KB_API_BASE: http://backend:8000
       KB_NAMESPACE: lore-db
-      MCP_TRANSPORT: sse
+      MCP_TRANSPORT: streamable-http
       MCP_MOUNT_PATH: /mcp
       FASTMCP_HOST: 0.0.0.0
     volumes:

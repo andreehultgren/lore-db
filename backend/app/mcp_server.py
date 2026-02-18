@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .service import get_kb
 
-mcp = FastMCP("vector-knowledge-base")
+mcp = FastMCP("vector-knowledge-base", stateless_http=True, streamable_http_path="/")
 API_BASE = os.getenv("KB_API_BASE", "").rstrip("/")
 
 # Per-request namespace resolved from the X-KB-Namespace header (SSE transport)
@@ -219,14 +219,48 @@ def build_sse_app(mount_path: str = "/mcp"):
     return Starlette(routes=[Mount(mount_path, app=_NamespaceMiddleware(mcp.sse_app()))])
 
 
+def build_streamable_http_app(mount_path: str = "/mcp"):
+    """Return a Starlette app with the MCP streamable-http app mounted at *mount_path*.
+
+    The mcp instance is configured with ``streamable_http_path="/"`` so the
+    inner app's single route lives at ``/``.  Mounting it at *mount_path* makes
+    the public endpoint ``<mount_path>/`` — a single clean URL with no double
+    path segments.  Because the transport is stateless (``stateless_http=True``)
+    each request is self-contained and service restarts never invalidate sessions.
+
+    The session manager's task group is started via the outer Starlette lifespan.
+    Starlette does not propagate lifespans from mounted sub-apps, so we wire it
+    up explicitly here after ``streamable_http_app()`` has initialised the manager.
+    """
+    from contextlib import asynccontextmanager
+
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+
+    http_app = mcp.streamable_http_app()  # initialises mcp._session_manager
+
+    @asynccontextmanager
+    async def _lifespan(_):
+        async with mcp._session_manager.run():
+            yield
+
+    return Starlette(
+        routes=[Mount(mount_path, app=_NamespaceMiddleware(http_app))],
+        lifespan=_lifespan,
+    )
+
+
 if __name__ == "__main__":
     transport = os.getenv("MCP_TRANSPORT", "stdio")
-    if transport == "sse":
+    if transport in ("sse", "streamable-http"):
         import uvicorn
 
         host = os.getenv("FASTMCP_HOST", "127.0.0.1")
         port = int(os.getenv("FASTMCP_PORT", "8000"))
         mount_path = os.getenv("MCP_MOUNT_PATH", "/mcp")
-        uvicorn.run(build_sse_app(mount_path), host=host, port=port)
+        if transport == "sse":
+            uvicorn.run(build_sse_app(mount_path), host=host, port=port)
+        else:
+            uvicorn.run(build_streamable_http_app(mount_path), host=host, port=port)
     else:
         mcp.run(transport=transport)

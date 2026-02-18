@@ -47,6 +47,12 @@ class TestMCPTransport:
         transport = os.getenv("MCP_TRANSPORT", "stdio")
         assert transport == "sse"
 
+    def test_streamable_http_transport_from_env(self, monkeypatch):
+        """Setting MCP_TRANSPORT=streamable-http selects streamable-http transport."""
+        monkeypatch.setenv("MCP_TRANSPORT", "streamable-http")
+        transport = os.getenv("MCP_TRANSPORT", "stdio")
+        assert transport == "streamable-http"
+
     def test_run_uses_transport_env_var(self, monkeypatch):
         """mcp.run() is called with the transport from MCP_TRANSPORT env var."""
         monkeypatch.setenv("MCP_TRANSPORT", "sse")
@@ -140,6 +146,100 @@ class TestMCPSSEApp:
         sse_app = mcp.sse_app()
         route_paths = [str(getattr(r, "path", "")) for r in sse_app.routes]
         assert any("/sse" in p for p in route_paths)
+
+
+class TestMCPStateless:
+    """Verify the mcp instance is configured for stateless HTTP."""
+
+    def test_mcp_is_stateless_http(self):
+        """mcp must be configured with stateless_http=True so service restarts
+        don't invalidate in-flight sessions."""
+        from app.mcp_server import mcp
+
+        assert mcp.settings.stateless_http is True
+
+
+class TestBuildStreamableHttpApp:
+    """Tests for build_streamable_http_app(), which mounts the streamable-http
+    app under a configurable prefix."""
+
+    def test_returns_starlette_app(self):
+        from starlette.applications import Starlette
+
+        import app.mcp_server as mod
+
+        built = mod.build_streamable_http_app("/mcp")
+        assert isinstance(built, Starlette)
+
+    def test_mounts_at_given_path(self):
+        from starlette.routing import Mount
+
+        import app.mcp_server as mod
+
+        built = mod.build_streamable_http_app("/mcp")
+        assert any(isinstance(r, Mount) and r.path == "/mcp" for r in built.routes)
+
+    def test_default_mount_path_is_mcp(self):
+        from starlette.routing import Mount
+
+        import app.mcp_server as mod
+
+        built = mod.build_streamable_http_app()
+        assert any(isinstance(r, Mount) and r.path == "/mcp" for r in built.routes)
+
+    def test_inner_app_is_namespace_middleware(self):
+        from starlette.routing import Mount
+
+        import app.mcp_server as mod
+
+        built = mod.build_streamable_http_app("/mcp")
+        mounts = [r for r in built.routes if isinstance(r, Mount) and r.path == "/mcp"]
+        assert len(mounts) == 1
+        assert isinstance(mounts[0].app, mod._NamespaceMiddleware)
+
+    def test_custom_mount_path(self):
+        from starlette.routing import Mount
+
+        import app.mcp_server as mod
+
+        built = mod.build_streamable_http_app("/tools/mcp")
+        assert any(isinstance(r, Mount) and r.path == "/tools/mcp" for r in built.routes)
+
+
+class TestMCPStreamableHttpApp:
+    """Verify the streamable-http ASGI application can be created."""
+
+    def test_streamable_http_app_can_be_created(self):
+        """FastMCP exposes a streamable-http ASGI application."""
+        from app.mcp_server import mcp
+
+        app = mcp.streamable_http_app()
+        assert app is not None
+
+    def test_streamable_http_app_is_asgi_callable(self):
+        """The streamable-http app returned is an ASGI-compatible callable."""
+        from app.mcp_server import mcp
+
+        app = mcp.streamable_http_app()
+        assert callable(app)
+
+    def test_streamable_http_app_serves_at_root(self):
+        """With streamable_http_path='/', the app has a route at '/' so it
+        serves cleanly under a Starlette Mount without a double path segment."""
+        from starlette.routing import Route
+
+        from app.mcp_server import mcp
+
+        http_app = mcp.streamable_http_app()
+        route_paths = [str(getattr(r, "path", "")) for r in http_app.routes]
+        assert "/" in route_paths
+
+    def test_namespace_middleware_wraps_streamable_http_app(self):
+        """_NamespaceMiddleware can wrap the FastMCP streamable-http app."""
+        import app.mcp_server as mod
+
+        wrapped = mod._NamespaceMiddleware(mod.mcp.streamable_http_app())
+        assert isinstance(wrapped, mod._NamespaceMiddleware)
 
 
 class TestNamespaceContext:
