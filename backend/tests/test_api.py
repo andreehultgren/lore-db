@@ -4,16 +4,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api import app
+from app.analytics import reset_analytics
 from app.service import get_kb
 
 
 @pytest.fixture(autouse=True)
 def _use_tmp_db(monkeypatch, tmp_path):
-    """Point all API requests to a temporary database."""
+    """Point all API requests to temporary databases."""
     monkeypatch.setenv("KB_DB_PATH", str(tmp_path / "test_api.db"))
+    monkeypatch.setenv("KB_ANALYTICS_DB_PATH", str(tmp_path / "test_analytics.db"))
     get_kb.cache_clear()
+    reset_analytics()
     yield
     get_kb.cache_clear()
+    reset_analytics()
 
 
 @pytest.fixture()
@@ -266,3 +270,108 @@ class TestNamespaceIsolation:
         )
         resp = client.get("/documents", headers={NS_HEADER: "isolated"})
         assert len(resp.json()) == 0
+
+
+# ── Analytics ──
+
+
+MCP_HEADER = {"X-Lore-Source": "mcp"}
+
+
+class TestAnalyticsLogEvent:
+    def test_post_event_returns_201(self, client):
+        resp = client.post(
+            "/analytics/events",
+            json={"event_type": "search", "namespace": "", "query": "python"},
+        )
+        assert resp.status_code == 201
+
+    def test_post_event_returns_event_fields(self, client):
+        resp = client.post(
+            "/analytics/events",
+            json={"event_type": "get_document", "namespace": "ns1", "document_id": "d1", "document_title": "A Doc"},
+        )
+        data = resp.json()
+        assert data["event_type"] == "get_document"
+        assert data["document_id"] == "d1"
+        assert "id" in data
+        assert "timestamp" in data
+
+    def test_post_event_minimal_payload(self, client):
+        resp = client.post("/analytics/events", json={"event_type": "list_documents"})
+        assert resp.status_code == 201
+
+    def test_post_event_invalid_event_type_rejected(self, client):
+        resp = client.post("/analytics/events", json={"event_type": ""})
+        assert resp.status_code == 422
+
+
+class TestAnalyticsStats:
+    def test_stats_empty(self, client):
+        resp = client.get("/analytics/stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_events"] == 0
+        assert data["events_by_type"] == {}
+        assert data["top_searches"] == []
+        assert data["top_documents"] == []
+        assert data["recent_events"] == []
+
+    def test_stats_reflect_logged_events(self, client):
+        client.post("/analytics/events", json={"event_type": "search", "query": "python", "result_count": 3})
+        client.post("/analytics/events", json={"event_type": "search", "query": "python"})
+        client.post("/analytics/events", json={"event_type": "get_document", "document_id": "d1", "document_title": "Guide"})
+        resp = client.get("/analytics/stats")
+        data = resp.json()
+        assert data["total_events"] == 3
+        assert data["events_by_type"]["search"] == 2
+        assert data["top_searches"][0]["query"] == "python"
+        assert data["top_searches"][0]["count"] == 2
+        assert data["top_documents"][0]["document_id"] == "d1"
+
+    def test_stats_namespace_filter(self, client):
+        client.post("/analytics/events", json={"event_type": "search", "namespace": "ns-a", "query": "q1"})
+        client.post("/analytics/events", json={"event_type": "search", "namespace": "ns-b", "query": "q2"})
+        resp = client.get("/analytics/stats?namespace=ns-a")
+        data = resp.json()
+        assert data["total_events"] == 1
+        assert data["top_searches"][0]["query"] == "q1"
+
+
+class TestAnalyticsEvents:
+    def test_get_events_empty(self, client):
+        resp = client.get("/analytics/events")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 0
+        assert data["events"] == []
+
+    def test_get_events_returns_logged_events(self, client):
+        client.post("/analytics/events", json={"event_type": "search", "query": "hello"})
+        client.post("/analytics/events", json={"event_type": "list_documents"})
+        resp = client.get("/analytics/events")
+        data = resp.json()
+        assert data["total"] == 2
+
+    def test_get_events_limit_and_offset(self, client):
+        for i in range(5):
+            client.post("/analytics/events", json={"event_type": "search", "query": f"q{i}"})
+        resp = client.get("/analytics/events?limit=2&offset=0")
+        data = resp.json()
+        assert data["total"] == 5
+        assert len(data["events"]) == 2
+
+    def test_get_events_filter_by_event_type(self, client):
+        client.post("/analytics/events", json={"event_type": "search", "query": "test"})
+        client.post("/analytics/events", json={"event_type": "get_document", "document_id": "d1"})
+        resp = client.get("/analytics/events?event_type=search")
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["events"][0]["event_type"] == "search"
+
+    def test_get_events_filter_by_namespace(self, client):
+        client.post("/analytics/events", json={"event_type": "search", "namespace": "ns-a", "query": "q1"})
+        client.post("/analytics/events", json={"event_type": "search", "namespace": "ns-b", "query": "q2"})
+        resp = client.get("/analytics/events?namespace=ns-a")
+        data = resp.json()
+        assert data["total"] == 1

@@ -1,20 +1,64 @@
 # Instructions for Lore DB
 
-## General instructions
+## General Instructions
 
 Any new feature starts with unit tests. These tests must be verified before work starts. Then we iterate against the tests to ensure that we are building a robust product.
 
-## Knowledge Base Protocol (Read & Write)
+## Knowledge Base Protocol (The "Brain")
 
 The `knowledge-base` MCP is our **Living Source of Truth**. You are its caretaker.
 
-### 1. Retrieval (Mandatory First Step)
+### 1. Retrieval (The "Search-then-Read" Pattern)
 
-- **Search First:** Before generating code or answers, perform a vector search in `knowledge-base` to find existing patterns or solutions.
-- **Strict Constraint:** Do NOT list files. Use specific semantic queries to minimize token usage.
+Your `search_documents` tool returns **only previews**. You cannot rely on previews for coding tasks.
 
-### 2. Maintenance (Continuous Update)
+**Step A: Search First**
 
-- **Capture Novelty:** If you generate a solution, fix a bug, or explain a concept that was NOT found in the knowledge base, you **MUST** add it to the knowledge base immediately.
-- **Refactor & Update:** If you change code logic that contradicts existing knowledge base entries, you must update those entries to reflect the new reality.
-- **Goal:** The knowledge base must always reflect the current state of the project. Never leave it stale.
+- Before writing code or answering, perform a vector search to find relevant document candidates.
+- _Example:_ `search_documents(query="testing pattern")`
+
+**Step B: Evaluate & Read (Mandatory)**
+
+- Look at the `content_preview` and `title` to identify the correct document.
+- **IMMEDIATELY** call `read_document(id=...)` (or equivalent) on the best match to get the full content.
+- **Constraint:** **Never** write code based on the `content_preview` alone. It is truncated (e.g., `isolation...`) and incomplete.
+
+### 2. Maintenance (The "Boy Scout Rule")
+
+- **Capture Novelty:** If you solve a problem, fix a bug, or explain a concept that was NOT found in the DB, you **MUST** create a new Brief or update an existing one immediately.
+- **Refactor = Update:** If you change code logic (e.g., "Deployment now requires 2 approvals"), you must find the corresponding Brief (`deployment_policy`) and update it.
+- **Prune Stale Data:** If you find a Brief that contradicts the current codebase, **delete** or **rewrite** it. Do not leave "zombie" knowledge.
+
+## Knowledge Base Strategy (Document Management)
+
+**Core Philosophy:** We organize knowledge into **Topic-Complete Briefs**. Each Brief is a single source of truth for a specific domain. Avoid fragmentation (tiny files) and bloat (massive generic files).
+
+### 1. Scope & Sizing ("The Goldilocks Rule")
+
+- **Target:** A Brief should be roughly **500 to 2,000 words** covering **one** topic comprehensively (e.g., `User Authentication`).
+- **The "Context" Rule:** A Brief must be self-contained. Do not write "See the other file." Include all necessary context (constants, environment variables, related CLI commands) in that one Brief so you don't need to open multiple files.
+- **When to Split:** If `backend_api.md` grows too large and covers both "Database Schema" and "API Routes", split it into two focused Briefs.
+
+### 2. Formatting for AI Readability
+
+- **Descriptive Titles:** The first line must be an H1 title that clearly describes the content.
+- ✅ `# Production Deployment Protocol v2`
+- ❌ `# notes.txt`
+
+- **Dense Headers:** Use `## H2` and `### H3` frequently. This helps the vector search chunk the content effectively.
+- **Current State Only:** Do not keep "Version History" or old deprecated code at the bottom of the file. The DB reflects the **current** reality only.
+
+### 3. Naming Conventions
+
+- **Descriptive:** Filenames must predict the content.
+- ✅ `deployment_procedures_v2.md`
+- ❌ `procedures.md`
+
+- **Categorization:** Use prefixes if helpful (`policy_vacation.md`, `policy_remote_work.md`).
+
+## System Self-Correction
+
+If you find yourself confused or hallucinating details because a document is missing, **STOP**.
+
+1. Ask the user for the details.
+2. Once the user answers, **create the missing Brief** so you don't have to ask again next time.

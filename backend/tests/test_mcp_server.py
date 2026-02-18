@@ -243,3 +243,113 @@ class TestNamespaceMiddleware:
 
         wrapped = mod._NamespaceMiddleware(mod.mcp.sse_app())
         assert isinstance(wrapped, mod._NamespaceMiddleware)
+
+
+class TestMCPEventLogging:
+    """MCP tools fire-and-forget analytics events after each operation."""
+
+    def test_search_documents_logs_event_via_api(self, monkeypatch):
+        """search_documents posts a search event when using the API proxy."""
+        import app.mcp_server as mod
+
+        calls = []
+
+        def fake_api_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            if path == "/search":
+                return [{"id": "d1", "title": "Doc", "content_preview": "...", "score": 0.9}]
+            return None
+
+        monkeypatch.setattr(mod, "API_BASE", "http://backend:8000")
+        monkeypatch.setattr(mod, "_api_request", fake_api_request)
+        mod.search_documents(query="python test", limit=5)
+
+        analytics_calls = [c for c in calls if c[1] == "/analytics/events"]
+        assert len(analytics_calls) == 1
+        payload = analytics_calls[0][2]
+        assert payload["event_type"] == "search"
+        assert payload["query"] == "python test"
+        assert payload["result_count"] == 1
+
+    def test_get_document_logs_event_via_api(self, monkeypatch):
+        """get_document posts a get_document event when using the API proxy."""
+        import app.mcp_server as mod
+
+        calls = []
+
+        def fake_api_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            if "/documents/" in path:
+                return {"id": "doc-1", "title": "Python Guide", "content": "..."}
+            return None
+
+        monkeypatch.setattr(mod, "API_BASE", "http://backend:8000")
+        monkeypatch.setattr(mod, "_api_request", fake_api_request)
+        mod.get_document(document_id="doc-1")
+
+        analytics_calls = [c for c in calls if c[1] == "/analytics/events"]
+        assert len(analytics_calls) == 1
+        payload = analytics_calls[0][2]
+        assert payload["event_type"] == "get_document"
+        assert payload["document_id"] == "doc-1"
+        assert payload["document_title"] == "Python Guide"
+
+    def test_list_documents_logs_event_via_api(self, monkeypatch):
+        """list_documents posts a list_documents event when using the API proxy."""
+        import app.mcp_server as mod
+
+        calls = []
+
+        def fake_api_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            if path == "/documents":
+                return []
+            return None
+
+        monkeypatch.setattr(mod, "API_BASE", "http://backend:8000")
+        monkeypatch.setattr(mod, "_api_request", fake_api_request)
+        mod.list_documents()
+
+        analytics_calls = [c for c in calls if c[1] == "/analytics/events"]
+        assert len(analytics_calls) == 1
+        assert analytics_calls[0][2]["event_type"] == "list_documents"
+
+    def test_analytics_failure_does_not_break_tool(self, monkeypatch):
+        """If the analytics POST fails, the tool still returns its result."""
+        import app.mcp_server as mod
+
+        def fake_api_request(method, path, payload=None):
+            if path == "/analytics/events":
+                raise RuntimeError("analytics down")
+            if path == "/search":
+                return []
+            return None
+
+        monkeypatch.setattr(mod, "API_BASE", "http://backend:8000")
+        monkeypatch.setattr(mod, "_api_request", fake_api_request)
+        result = mod.search_documents(query="test")
+        assert result["ok"] is True
+
+    def test_search_logs_include_namespace(self, monkeypatch):
+        """Analytics event includes the active namespace."""
+        import app.mcp_server as mod
+
+        calls = []
+
+        def fake_api_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            if path == "/search":
+                return []
+            return None
+
+        monkeypatch.setattr(mod, "API_BASE", "http://backend:8000")
+        monkeypatch.setattr(mod, "_api_request", fake_api_request)
+
+        token = mod._namespace_ctx.set("lore-db")
+        try:
+            mod.search_documents(query="test")
+        finally:
+            mod._namespace_ctx.reset(token)
+
+        analytics_calls = [c for c in calls if c[1] == "/analytics/events"]
+        assert analytics_calls[0][2]["namespace"] == "lore-db"

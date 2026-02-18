@@ -77,6 +77,7 @@ function RootLayout(): JSX.Element {
   const navItems = [
     { to: "/documents" as const, label: "Documents" },
     { to: "/search" as const, label: "Search" },
+    { to: "/analytics" as const, label: "Analytics" },
     { to: "/settings" as const, label: "Settings" },
   ];
 

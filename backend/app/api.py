@@ -1,6 +1,8 @@
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
+from .analytics import get_analytics
 from .models import (
     Document,
     DocumentCreate,
@@ -9,6 +11,15 @@ from .models import (
     SearchResult,
 )
 from .service import get_kb, list_namespaces, reload_kb
+
+
+class AnalyticsEventCreate(BaseModel):
+    event_type: str = Field(min_length=1)
+    namespace: str = Field(default="")
+    document_id: str | None = None
+    document_title: str | None = None
+    query: str | None = None
+    result_count: int | None = None
 
 app = FastAPI(title="Lore DB API", version="0.1.0")
 
@@ -80,3 +91,38 @@ def delete_document(document_id: str, x_kb_namespace: str = Header("")) -> None:
 @app.post("/search", response_model=list[SearchResult])
 def search(payload: SearchRequest, x_kb_namespace: str = Header("")) -> list[dict]:
     return get_kb(x_kb_namespace).search(query=payload.query, limit=payload.limit)
+
+
+# ── Analytics ──
+
+
+@app.post("/analytics/events", status_code=201)
+def log_analytics_event(payload: AnalyticsEventCreate) -> dict:
+    return get_analytics().log(
+        event_type=payload.event_type,
+        namespace=payload.namespace,
+        document_id=payload.document_id,
+        document_title=payload.document_title,
+        query=payload.query,
+        result_count=payload.result_count,
+    )
+
+
+@app.get("/analytics/stats")
+def get_analytics_stats(namespace: str | None = Query(default=None)) -> dict:
+    return get_analytics().get_stats(namespace=namespace)
+
+
+@app.get("/analytics/events")
+def get_analytics_events(
+    event_type: str | None = Query(default=None),
+    namespace: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    return get_analytics().get_events(
+        limit=limit,
+        offset=offset,
+        event_type=event_type,
+        namespace=namespace,
+    )

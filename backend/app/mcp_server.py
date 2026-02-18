@@ -74,13 +74,31 @@ def _api_request(
         raise RuntimeError(f"Could not reach API at {API_BASE}: {exc.reason}") from exc
 
 
+def _log_event(event_type: str, **kwargs) -> None:
+    """Fire-and-forget analytics event. Never raises."""
+    try:
+        ns = _get_namespace()
+        payload = {"event_type": event_type, "namespace": ns, **kwargs}
+        if _has_api_proxy():
+            _api_request("POST", "/analytics/events", payload)
+        else:
+            from .analytics import get_analytics
+            get_analytics().log(event_type=event_type, namespace=ns, **kwargs)
+    except Exception:
+        pass
+
+
 @mcp.tool()
 def list_documents() -> list[dict]:
     """List documents in the knowledge base."""
     if _has_api_proxy():
         data = _api_request("GET", "/documents")
-        return data if isinstance(data, list) else []
-    return get_kb(_get_namespace()).list_documents()
+        result = data if isinstance(data, list) else []
+        _log_event("list_documents")
+        return result
+    docs = get_kb(_get_namespace()).list_documents()
+    _log_event("list_documents")
+    return docs
 
 
 @mcp.tool()
@@ -89,11 +107,14 @@ def get_document(document_id: str) -> dict:
     if _has_api_proxy():
         safe_id = parse.quote(document_id, safe="")
         data = _api_request("GET", f"/documents/{safe_id}")
+        title = data.get("title") if isinstance(data, dict) else None
+        _log_event("get_document", document_id=document_id, document_title=title)
         return {"ok": True, "document": data}
 
     document = get_kb(_get_namespace()).get_document(document_id)
     if document is None:
         return {"ok": False, "error": "Document not found", "document_id": document_id}
+    _log_event("get_document", document_id=document_id, document_title=document.get("title"))
     return {"ok": True, "document": document}
 
 
@@ -104,9 +125,11 @@ def create_document(title: str, content: str = "") -> dict:
         document = _api_request(
             "POST", "/documents", {"title": title.strip(), "content": content}
         )
+        _log_event("create_document")
         return {"ok": True, "document": document}
 
     document = get_kb(_get_namespace()).create_document(title=title.strip(), content=content)
+    _log_event("create_document")
     return {"ok": True, "document": document}
 
 
@@ -134,6 +157,7 @@ def update_document(
             f"/documents/{safe_id}",
             {"title": next_title, "content": next_content},
         )
+        _log_event("update_document", document_id=document_id)
         return {"ok": True, "document": updated}
 
     current = get_kb(_get_namespace()).get_document(document_id)
@@ -147,6 +171,7 @@ def update_document(
         title=next_title,
         content=next_content,
     )
+    _log_event("update_document", document_id=document_id)
     return {"ok": True, "document": updated}
 
 
@@ -156,11 +181,13 @@ def delete_document(document_id: str) -> dict:
     if _has_api_proxy():
         safe_id = parse.quote(document_id, safe="")
         _api_request("DELETE", f"/documents/{safe_id}")
+        _log_event("delete_document", document_id=document_id)
         return {"ok": True, "document_id": document_id}
 
     deleted = get_kb(_get_namespace()).delete_document(document_id=document_id)
     if not deleted:
         return {"ok": False, "error": "Document not found", "document_id": document_id}
+    _log_event("delete_document", document_id=document_id)
     return {"ok": True, "document_id": document_id}
 
 
@@ -170,9 +197,12 @@ def search_documents(query: str, limit: int = 5) -> dict:
     safe_limit = min(max(limit, 1), 50)
     if _has_api_proxy():
         results = _api_request("POST", "/search", {"query": query, "limit": safe_limit})
-        return {"ok": True, "query": query, "results": results}
+        result_list = results if isinstance(results, list) else []
+        _log_event("search", query=query, result_count=len(result_list))
+        return {"ok": True, "query": query, "results": result_list}
 
     results = get_kb(_get_namespace()).search(query=query, limit=safe_limit)
+    _log_event("search", query=query, result_count=len(results))
     return {"ok": True, "query": query, "results": results}
 
 

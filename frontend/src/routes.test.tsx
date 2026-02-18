@@ -50,6 +50,18 @@ vi.mock("@/api", () => ({
   updateDocument: vi.fn(),
   deleteDocument: vi.fn(),
   searchDocuments: vi.fn(() => Promise.resolve([])),
+  getAnalyticsStats: vi.fn(() =>
+    Promise.resolve({
+      total_events: 42,
+      events_by_type: { search: 30, get_document: 12 },
+      top_searches: [{ query: "python", count: 10 }],
+      top_documents: [{ document_id: "doc-1", document_title: "Test Doc", count: 5 }],
+      recent_events: [],
+    }),
+  ),
+  getAnalyticsEvents: vi.fn(() =>
+    Promise.resolve({ events: [], total: 0 }),
+  ),
 }));
 
 import { setNamespace } from "@/api";
@@ -93,6 +105,9 @@ function createTestRouter(initialUrl: string) {
           </Link>
           <Link to="/search" search={(prev) => prev}>
             Search
+          </Link>
+          <Link to="/analytics" search={(prev) => prev}>
+            Analytics
           </Link>
           <Link to="/settings" search={(prev) => prev}>
             Settings
@@ -144,6 +159,12 @@ function createTestRouter(initialUrl: string) {
     component: () => <div data-testid="settings-page">Settings Page</div>,
   });
 
+  const analyticsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/analytics",
+    component: () => <div data-testid="analytics-page">Analytics Page</div>,
+  });
+
   const routeTree = rootRoute.addChildren([
     indexRoute,
     documentsIndexRoute,
@@ -151,6 +172,7 @@ function createTestRouter(initialUrl: string) {
     documentEditRoute,
     searchRoute,
     settingsRoute,
+    analyticsRoute,
   ]);
 
   const history = createMemoryHistory({ initialEntries: [initialUrl] });
@@ -222,6 +244,15 @@ describe("Route structure", () => {
       expect(screen.getByTestId("settings-page")).toBeInTheDocument();
     });
   });
+
+  it("renders analytics page at /analytics", async () => {
+    const router = createTestRouter("/analytics");
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("analytics-page")).toBeInTheDocument();
+    });
+  });
 });
 
 describe("Namespace sync from URL", () => {
@@ -275,6 +306,7 @@ describe("Sidebar navigation", () => {
     expect(screen.getByText("LORE DB")).toBeInTheDocument();
     expect(screen.getByText("Documents")).toBeInTheDocument();
     expect(screen.getByText("Search")).toBeInTheDocument();
+    expect(screen.getByText("Analytics")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 

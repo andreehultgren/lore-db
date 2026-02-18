@@ -98,3 +98,55 @@ export function searchDocuments(
     body: JSON.stringify({ query, limit }),
   });
 }
+
+// ── Analytics ──
+
+export interface AnalyticsEvent {
+  id: string;
+  timestamp: string;
+  event_type: string;
+  namespace: string;
+  document_id: string | null;
+  document_title: string | null;
+  query: string | null;
+  result_count: number | null;
+}
+
+export interface AnalyticsStats {
+  total_events: number;
+  events_by_type: Record<string, number>;
+  top_searches: Array<{ query: string; count: number }>;
+  top_documents: Array<{
+    document_id: string;
+    document_title: string | null;
+    count: number;
+  }>;
+  recent_events: AnalyticsEvent[];
+}
+
+export interface AnalyticsEventsResponse {
+  events: AnalyticsEvent[];
+  total: number;
+}
+
+export function getAnalyticsStats(namespace?: string): Promise<AnalyticsStats> {
+  const qs = namespace ? `?namespace=${encodeURIComponent(namespace)}` : "";
+  return request<AnalyticsStats>(`/analytics/stats${qs}`);
+}
+
+export function getAnalyticsEvents(options?: {
+  event_type?: string;
+  namespace?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<AnalyticsEventsResponse> {
+  const params = new URLSearchParams();
+  if (options?.event_type) params.set("event_type", options.event_type);
+  if (options?.namespace !== undefined)
+    params.set("namespace", options.namespace);
+  if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  if (options?.offset !== undefined)
+    params.set("offset", String(options.offset));
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return request<AnalyticsEventsResponse>(`/analytics/events${qs}`);
+}
