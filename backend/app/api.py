@@ -1,3 +1,6 @@
+from datetime import datetime, timezone
+from typing import Literal
+
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -20,6 +23,16 @@ class AnalyticsEventCreate(BaseModel):
     document_title: str | None = None
     query: str | None = None
     result_count: int | None = None
+
+
+class ImportDocument(BaseModel):
+    title: str = Field(min_length=1)
+    content: str = Field(default="")
+
+
+class ImportPayload(BaseModel):
+    documents: list[ImportDocument]
+    mode: Literal["merge", "replace"] = "merge"
 
 app = FastAPI(title="Lore DB API", version="0.1.0")
 
@@ -98,6 +111,32 @@ def delete_document(document_id: str, x_kb_namespace: str = Header("")) -> None:
 @app.post("/search", response_model=list[SearchResult])
 def search(payload: SearchRequest, x_kb_namespace: str = Header("")) -> list[dict]:
     return get_kb(x_kb_namespace).search(query=payload.query, limit=payload.limit)
+
+
+# ── Export / Import ──
+
+
+@app.get("/export")
+def export_namespace(x_kb_namespace: str = Header("")) -> dict:
+    kb = get_kb(x_kb_namespace)
+    documents = kb.list_documents()
+    return {
+        "version": 1,
+        "namespace": x_kb_namespace,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "documents": [{"title": doc["title"], "content": doc["content"]} for doc in documents],
+    }
+
+
+@app.post("/import")
+def import_namespace(payload: ImportPayload, x_kb_namespace: str = Header("")) -> dict:
+    kb = get_kb(x_kb_namespace)
+    if payload.mode == "replace":
+        for doc in kb.list_documents():
+            kb.delete_document(doc["id"])
+    for doc in payload.documents:
+        kb.create_document(title=doc.title.strip(), content=doc.content)
+    return {"imported": len(payload.documents)}
 
 
 # ── Analytics ──

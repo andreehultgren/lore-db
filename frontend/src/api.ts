@@ -103,6 +103,29 @@ export function searchDocuments(
   });
 }
 
+// ── Export / Import ──
+
+export interface ExportPayload {
+  version: number;
+  namespace: string;
+  exported_at: string;
+  documents: Array<{ title: string; content: string }>;
+}
+
+export function exportNamespace(): Promise<ExportPayload> {
+  return request<ExportPayload>("/export");
+}
+
+export function importNamespace(payload: {
+  documents: Array<{ title: string; content: string }>;
+  mode: "merge" | "replace";
+}): Promise<{ imported: number }> {
+  return request<{ imported: number }>("/import", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 // ── Analytics ──
 
 export interface AnalyticsEvent {

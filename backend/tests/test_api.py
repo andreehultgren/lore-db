@@ -375,3 +375,93 @@ class TestAnalyticsEvents:
         resp = client.get("/analytics/events?namespace=ns-a")
         data = resp.json()
         assert data["total"] == 1
+
+
+# ── Export ──
+
+
+class TestExport:
+    def test_export_empty_namespace(self, client):
+        resp = client.get("/export", headers={NS_HEADER: "empty-ns"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["version"] == 1
+        assert data["documents"] == []
+
+    def test_export_returns_all_documents(self, client):
+        client.post("/documents", json={"title": "Alpha", "content": "a"}, headers={NS_HEADER: "export-ns"})
+        client.post("/documents", json={"title": "Beta", "content": "b"}, headers={NS_HEADER: "export-ns"})
+        resp = client.get("/export", headers={NS_HEADER: "export-ns"})
+        assert resp.status_code == 200
+        data = resp.json()
+        titles = {doc["title"] for doc in data["documents"]}
+        assert titles == {"Alpha", "Beta"}
+
+    def test_export_has_correct_content_disposition(self, client):
+        resp = client.get("/export", headers={NS_HEADER: "my-ns"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["namespace"] == "my-ns"
+        assert "exported_at" in data
+        assert "version" in data
+
+
+# ── Import ──
+
+
+class TestImport:
+    def test_import_merge_adds_documents(self, client):
+        client.post("/documents", json={"title": "Existing", "content": "x"}, headers={NS_HEADER: "merge-ns"})
+        resp = client.post(
+            "/import",
+            json={"documents": [{"title": "New A", "content": ""}, {"title": "New B", "content": ""}], "mode": "merge"},
+            headers={NS_HEADER: "merge-ns"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["imported"] == 2
+        all_docs = client.get("/documents", headers={NS_HEADER: "merge-ns"}).json()
+        assert len(all_docs) == 3
+
+    def test_import_replace_clears_first(self, client):
+        client.post("/documents", json={"title": "Old", "content": "x"}, headers={NS_HEADER: "replace-ns"})
+        resp = client.post(
+            "/import",
+            json={"documents": [{"title": "New A", "content": ""}, {"title": "New B", "content": ""}], "mode": "replace"},
+            headers={NS_HEADER: "replace-ns"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["imported"] == 2
+        all_docs = client.get("/documents", headers={NS_HEADER: "replace-ns"}).json()
+        assert len(all_docs) == 2
+        titles = {d["title"] for d in all_docs}
+        assert "Old" not in titles
+
+    def test_import_invalid_mode_rejected(self, client):
+        resp = client.post(
+            "/import",
+            json={"documents": [], "mode": "overwrite"},
+            headers={NS_HEADER: ""},
+        )
+        assert resp.status_code == 422
+
+    def test_import_empty_title_rejected(self, client):
+        resp = client.post(
+            "/import",
+            json={"documents": [{"title": "", "content": "body"}], "mode": "merge"},
+            headers={NS_HEADER: ""},
+        )
+        assert resp.status_code == 422
+
+    def test_import_roundtrip(self, client):
+        client.post("/documents", json={"title": "Round A", "content": "aaa"}, headers={NS_HEADER: "src-ns"})
+        client.post("/documents", json={"title": "Round B", "content": "bbb"}, headers={NS_HEADER: "src-ns"})
+        export_data = client.get("/export", headers={NS_HEADER: "src-ns"}).json()
+        client.post(
+            "/import",
+            json={"documents": export_data["documents"], "mode": "replace"},
+            headers={NS_HEADER: "dest-ns"},
+        )
+        dest_docs = client.get("/documents", headers={NS_HEADER: "dest-ns"}).json()
+        assert len(dest_docs) == 2
+        dest_titles = {d["title"] for d in dest_docs}
+        assert dest_titles == {"Round A", "Round B"}
