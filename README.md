@@ -1,60 +1,104 @@
-# Lore DB (Python + React + MCP)
+# Lore DB
 
-A local vector-based knowledge base with:
+A local, vector-based knowledge base with semantic search, a web UI, and an MCP server for use with Claude and other AI tools.
 
-- Python backend for persistence, embeddings, REST API, and MCP tools
-- React + TypeScript frontend using shadcn-style UI components
-- SQLite storage for documents and vectors
+- **Python backend** — FastAPI REST API, sentence-transformer embeddings, SQLite storage
+- **React frontend** — document management, semantic search, analytics dashboard
+- **MCP server** — six tools (`list`, `get`, `search`, `create`, `update`, `delete`) over HTTP or stdio
+- **Multi-namespace** — isolate knowledge bases per project using the `X-KB-Namespace` header or `KB_NAMESPACE` env var
+- **Analytics** — tracks MCP tool usage (searches, views, creates) in a separate SQLite database
 
 ## Architecture
 
-- `backend/app/vector_store.py`
-  - SQLite-backed document store
-  - Hashing-based vector embedder
-  - Cosine similarity search
-- `backend/app/api.py`
-  - FastAPI CRUD + search endpoints for GUI
-- `backend/app/mcp_server.py`
-  - MCP tools (`list_documents`, `get_document`, `create_document`, `update_document`, `delete_document`, `search_documents`)
-- `frontend/`
-  - Vite + React + TypeScript
-  - Tailwind + shadcn-style component primitives under `src/components/ui`
-
-## Quick Start (Docker Compose)
-
-The entire project is buildable with docker compose.
-
-```bash
-docker compose up -d
+```
+proxy (nginx :8765)
+  ├── /api/         → backend (FastAPI :8000)
+  ├── /mcp/         → mcp    (FastMCP :8000, streamable-http)
+  └── /             → frontend (nginx :80, React SPA)
 ```
 
-Persistent storage:
+| Module                        | Description                                                    |
+| ----------------------------- | -------------------------------------------------------------- |
+| `backend/app/vector_store.py` | SQLite document store + `all-MiniLM-L6-v2` semantic embeddings |
+| `backend/app/api.py`          | FastAPI CRUD, search, reindex, analytics, namespace endpoints  |
+| `backend/app/mcp_server.py`   | MCP tools (stdio, SSE, streamable-http transports)             |
+| `backend/app/service.py`      | Per-namespace KB instances with LRU caching                    |
+| `backend/app/analytics.py`    | MCP event logging in a global `analytics.db`                   |
+| `frontend/`                   | Vite + React + TypeScript, TanStack Router, Tailwind           |
 
-- SQLite DB is stored on host at:
-  - `.localdata/backend/knowledge_base.db`
-- `.localdata/` is gitignored.
+## Quick Start
 
-## Quick Start (npm)
+### Production
 
 ```bash
-npm install
 npm run start
 ```
 
-## Dev mode (npm)
+Runs `docker compose up --build -d`. The app is available at **http://localhost:8765**.
 
 ```bash
-npm install
+npm run stop      # docker compose down
+npm run restart   # down + up --build -d
+```
+
+### Development (hot reload)
+
+```bash
 npm run dev
 ```
 
-## Initialize MCP server
+Runs `docker compose -f docker-compose.dev.yml up --build`. The app is available at **http://localhost:8766**.
 
-### Claude
+- Backend restarts on Python file changes (`--reload`)
+- Frontend uses the Vite dev server with full HMR
+- Uses a separate database at `.localdata/backend-dev/` so dev never touches prod data
 
-Make sure the services are running (`docker compose up -d`).
+## Persistent Storage
 
-Then add a `.mcp.json` in the same directory as where you start Claude.
+SQLite databases are stored on the host and are gitignored:
+
+| Path                                    | Contents                                |
+| --------------------------------------- | --------------------------------------- |
+| `.localdata/backend/knowledge_base*.db` | Document store (one file per namespace) |
+| `.localdata/backend/analytics.db`       | MCP event log                           |
+
+## MCP Configuration
+
+The MCP server is exposed at `http://localhost:8765/mcp/` using the streamable-http transport.
+
+Add a `.mcp.json` in the directory where you start Claude:
+
+```json
+{
+  "mcpServers": {
+    "knowledge-base": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp/",
+      "headers": {
+        "X-KB-Namespace": "my-project"
+      }
+    }
+  }
+}
+```
+
+Set `X-KB-Namespace` to any alphanumeric slug. Each unique namespace gets its own isolated database.
+
+### Available MCP Tools
+
+| Tool                                | Description                                                      |
+| ----------------------------------- | ---------------------------------------------------------------- |
+| `list_documents`                    | List all document titles and IDs                                 |
+| `get_document(document_id)`         | Fetch full document content                                      |
+| `search_documents(query, limit)`    | Semantic + lexical search                                        |
+| `create_document(title, content)`   | Add a new document                                               |
+| `update_document(document_id, ...)` | Update title and/or content                                      |
+| `delete_document(document_id)`      | Remove a document                                                |
+| `reindex_documents`                 | Re-embed all documents (run after first deploy or model changes) |
+
+### Stdio fallback
+
+For direct CLI invocation without the HTTP server:
 
 ```json
 {
@@ -67,7 +111,7 @@ Then add a `.mcp.json` in the same directory as where you start Claude.
         "exec",
         "-T",
         "-e",
-        "KB_NAMESPACE=lore-db",
+        "KB_NAMESPACE=my-project",
         "backend",
         "python",
         "-m",
@@ -76,4 +120,24 @@ Then add a `.mcp.json` in the same directory as where you start Claude.
     }
   }
 }
+```
+
+## Reindexing
+
+Run `reindex_documents()` via MCP tool, the Settings page, or curl after:
+
+- First deploy switching from the old hash embedder to `all-MiniLM-L6-v2`
+- Upgrading to a different embedding model
+
+```bash
+curl -X POST http://localhost:8765/api/reindex -H "X-Kb-Namespace: my-project"
+```
+
+Normal `create` and `update` operations always auto-embed — no manual reindex needed.
+
+## Running Tests
+
+```bash
+cd backend
+python -m pytest tests/ -v
 ```

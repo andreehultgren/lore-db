@@ -12,6 +12,31 @@ from threading import Lock
 
 TOKEN_PATTERN = re.compile(r"\b\w+\b")
 
+# Detect sentence-transformers at import time so the fallback kicks in without
+# raising at module level.
+try:
+    import sentence_transformers as _sentence_transformers_pkg  # noqa: F401
+
+    _SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    _SENTENCE_TRANSFORMERS_AVAILABLE = False
+
+# Module-level singleton: the ST model is heavy to load, so we load it once and
+# share it across all SentenceTransformerEmbedder instances.
+_st_model = None
+_st_model_lock = Lock()
+
+
+def _load_st_model(model_name: str):
+    global _st_model
+    if _st_model is None:
+        with _st_model_lock:
+            if _st_model is None:
+                from sentence_transformers import SentenceTransformer
+
+                _st_model = SentenceTransformer(model_name)
+    return _st_model
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -71,15 +96,41 @@ class HashingEmbedder:
         return normalize(vector)
 
 
+class SentenceTransformerEmbedder:
+    """Semantic embedder using sentence-transformers all-MiniLM-L6-v2 (384-dim).
+
+    The underlying model is loaded lazily on the first embed() call and then
+    cached as a module-level singleton, so repeated instantiation is free.
+    """
+
+    MODEL_NAME = "all-MiniLM-L6-v2"
+    dimensions = 384
+
+    def embed(self, text: str) -> list[float]:
+        if not text or not text.strip():
+            return [0.0] * self.dimensions
+        model = _load_st_model(self.MODEL_NAME)
+        embedding = model.encode(text, normalize_embeddings=True)
+        return embedding.tolist()
+
+
+def _make_default_embedder():
+    """Return a SentenceTransformerEmbedder when the package is available,
+    otherwise fall back to HashingEmbedder so the server remains functional."""
+    if _SENTENCE_TRANSFORMERS_AVAILABLE:
+        return SentenceTransformerEmbedder()
+    return HashingEmbedder()
+
+
 class VectorKnowledgeBase:
-    def __init__(self, db_path: str, embedding_dimensions: int = 384) -> None:
+    def __init__(self, db_path: str, embedder=None) -> None:
         database_path = Path(db_path)
         database_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._connection = sqlite3.connect(str(database_path), check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
         self._lock = Lock()
-        self._embedder = HashingEmbedder(dimensions=embedding_dimensions)
+        self._embedder = embedder if embedder is not None else _make_default_embedder()
 
         with self._lock:
             self._connection.execute("PRAGMA foreign_keys = ON;")
@@ -104,6 +155,30 @@ class VectorKnowledgeBase:
                 """
             )
             self._connection.commit()
+
+    def reindex_all(self) -> int:
+        """Re-embed all documents with the current embedder. Returns count of reindexed docs."""
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT id, title, content FROM documents"
+            ).fetchall()
+
+        count = 0
+        for row in rows:
+            vector = self._embedder.embed(f"{row['title']}\n{row['content']}")
+            with self._lock:
+                self._connection.execute(
+                    """
+                    INSERT INTO document_vectors (document_id, vector_json)
+                    VALUES (?, ?)
+                    ON CONFLICT(document_id) DO UPDATE SET vector_json = excluded.vector_json
+                    """,
+                    (row["id"], json.dumps(vector)),
+                )
+                self._connection.commit()
+            count += 1
+
+        return count
 
     def close(self) -> None:
         with self._lock:

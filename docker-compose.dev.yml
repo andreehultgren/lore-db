@@ -45,7 +45,7 @@ services:
       - backend
       - frontend
     ports:
-      - "3000:80"
+      - "8766:80"
     volumes:
       - ./deploy/nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
     restart: unless-stopped

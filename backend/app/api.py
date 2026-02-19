@@ -47,6 +47,13 @@ def reload_database(x_kb_namespace: str = Header("")) -> dict[str, str]:
     return {"status": "reloaded"}
 
 
+@app.post("/reindex")
+def reindex(x_kb_namespace: str = Header("")) -> dict:
+    """Re-embed all documents using the current embedder. Run after switching embedders."""
+    count = get_kb(x_kb_namespace).reindex_all()
+    return {"status": "ok", "reindexed": count}
+
+
 @app.get("/documents", response_model=list[Document])
 def list_documents(x_kb_namespace: str = Header("")) -> list[dict]:
     return get_kb(x_kb_namespace).list_documents()

@@ -430,6 +430,46 @@ class TestMCPEventLogging:
         result = mod.search_documents(query="test")
         assert result["ok"] is True
 
+    def test_reindex_documents_logs_event_via_api(self, monkeypatch):
+        """reindex_documents posts a reindex event when using the API proxy."""
+        import app.mcp_server as mod
+
+        calls = []
+
+        def fake_api_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            if path == "/reindex":
+                return {"status": "ok", "reindexed": 3}
+            return None
+
+        monkeypatch.setattr(mod, "API_BASE", "http://backend:8000")
+        monkeypatch.setattr(mod, "_api_request", fake_api_request)
+        result = mod.reindex_documents()
+
+        assert result == {"ok": True, "reindexed": 3}
+        analytics_calls = [c for c in calls if c[1] == "/analytics/events"]
+        assert len(analytics_calls) == 1
+        assert analytics_calls[0][2]["event_type"] == "reindex"
+
+    def test_reindex_documents_direct_kb(self, monkeypatch):
+        """reindex_documents calls reindex_all() on the KB when no API proxy is set."""
+        import app.mcp_server as mod
+
+        monkeypatch.setattr(mod, "API_BASE", "")
+
+        called = []
+
+        class FakeKB:
+            def reindex_all(self):
+                called.append(True)
+                return 5
+
+        monkeypatch.setattr(mod, "get_kb", lambda ns="": FakeKB())
+        result = mod.reindex_documents()
+
+        assert called == [True]
+        assert result == {"ok": True, "reindexed": 5}
+
     def test_search_logs_include_namespace(self, monkeypatch):
         """Analytics event includes the active namespace."""
         import app.mcp_server as mod

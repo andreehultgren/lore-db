@@ -61,6 +61,10 @@ export function reloadDatabase(): Promise<{ status: string }> {
   return request<{ status: string }>("/reload-db", { method: "POST" });
 }
 
+export function reindexDocuments(): Promise<{ status: string; reindexed: number }> {
+  return request<{ status: string; reindexed: number }>("/reindex", { method: "POST" });
+}
+
 export function getDocument(documentId: string): Promise<KnowledgeDocument> {
   return request<KnowledgeDocument>(`/documents/${documentId}`);
 }

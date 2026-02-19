@@ -90,7 +90,10 @@ def _log_event(event_type: str, **kwargs) -> None:
 
 @mcp.tool()
 def list_documents() -> list[dict]:
-    """List documents in the knowledge base."""
+    """List all documents in the knowledge base (titles and IDs only, no content).
+
+    Use this to get an overview of what exists before deciding to search or read.
+    To retrieve full content, follow up with get_document(document_id)."""
     if _has_api_proxy():
         data = _api_request("GET", "/documents")
         result = data if isinstance(data, list) else []
@@ -103,7 +106,10 @@ def list_documents() -> list[dict]:
 
 @mcp.tool()
 def get_document(document_id: str) -> dict:
-    """Get one document by id."""
+    """Fetch the full content of a document by its ID.
+
+    Always call this after search_documents — search returns only truncated previews,
+    never write code or make decisions based on a preview alone."""
     if _has_api_proxy():
         safe_id = parse.quote(document_id, safe="")
         data = _api_request("GET", f"/documents/{safe_id}")
@@ -120,7 +126,23 @@ def get_document(document_id: str) -> dict:
 
 @mcp.tool()
 def create_document(title: str, content: str = "") -> dict:
-    """Create a new document."""
+    """Create a new document in the knowledge base.
+
+    DOCUMENT STRUCTURE GUIDELINES (important for search quality):
+
+    Search uses sentence-transformer embeddings (all-MiniLM-L6-v2, 256-token window).
+    Each document is embedded as a SINGLE vector. Keep these rules in mind:
+
+    - Ideal size: 150–300 words. The model reads at most ~200 words; content beyond
+      that is truncated and invisible to search.
+    - One concept per document. A document covering three topics produces a diluted
+      vector that matches none of them precisely. Split instead.
+    - Front-load the key idea. The opening sentence carries the most semantic weight.
+    - The title is embedded alongside the content — make it descriptive and specific.
+    - Prefer many small focused documents over one large document.
+
+    Good: "Auth - JWT Expiry and Refresh Flow" (150 words on that one topic)
+    Bad:  "Authentication System" (2 000 words covering everything auth-related)"""
     if _has_api_proxy():
         document = _api_request(
             "POST", "/documents", {"title": title.strip(), "content": content}
@@ -139,7 +161,11 @@ def update_document(
     title: str | None = None,
     content: str | None = None,
 ) -> dict:
-    """Update an existing document. Missing fields keep current values."""
+    """Update an existing document. Missing fields keep their current values.
+
+    When updating, re-apply the same sizing discipline as create_document:
+    150–300 words, one concept. If a document has grown large and now covers
+    multiple topics, split it into separate documents instead of updating."""
     if _has_api_proxy():
         safe_id = parse.quote(document_id, safe="")
         current = _api_request("GET", f"/documents/{safe_id}")
@@ -192,8 +218,38 @@ def delete_document(document_id: str) -> dict:
 
 
 @mcp.tool()
+def reindex_documents() -> dict:
+    """Re-embed all documents using the current embedding model.
+
+    When to run: only after the embedding model changes (e.g. first deploy with
+    sentence-transformers, or after upgrading to a larger model). Normal
+    create/update operations always embed automatically — do not run this routinely."""
+    if _has_api_proxy():
+        result = _api_request("POST", "/reindex")
+        count = result.get("reindexed", 0) if isinstance(result, dict) else 0
+        _log_event("reindex", result_count=count)
+        return {"ok": True, "reindexed": count}
+
+    count = get_kb(_get_namespace()).reindex_all()
+    _log_event("reindex", result_count=count)
+    return {"ok": True, "reindexed": count}
+
+
+@mcp.tool()
 def search_documents(query: str, limit: int = 5) -> dict:
-    """Vector-search documents by free-text query."""
+    """Semantic search across all documents. Returns previews only — always follow
+    up with get_document(document_id) before writing code or making decisions.
+
+    SEARCH TIPS:
+    - Use natural-language questions or descriptions, not keyword strings.
+      Good: "how does the MCP handle service restarts"
+      Bad:  "MCP restart"
+    - The embedder understands meaning: "hot reloading" finds "Dev Mode Setup",
+      "stateless connections" finds the MCP transport doc, etc.
+    - Results include a score (0–1). Scores above ~0.35 are strong matches;
+      below ~0.1 the document is likely not relevant.
+    - If no results score above 0.1, the information may not exist yet — consider
+      creating a new document."""
     safe_limit = min(max(limit, 1), 50)
     if _has_api_proxy():
         results = _api_request("POST", "/search", {"query": query, "limit": safe_limit})

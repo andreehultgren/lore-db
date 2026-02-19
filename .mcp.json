@@ -2,7 +2,7 @@
   "mcpServers": {
     "knowledge-base": {
       "type": "http",
-      "url": "http://localhost:8080/mcp/",
+      "url": "http://localhost:8765/mcp/",
       "headers": {
         "X-KB-Namespace": "lore-db"
       }

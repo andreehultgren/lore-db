@@ -236,6 +236,117 @@ class TestVectorKnowledgeBaseSearch:
         assert any(r["id"] == doc["id"] for r in results)
 
 
+# ── SentenceTransformerEmbedder ──
+
+
+class TestSentenceTransformerEmbedder:
+    @pytest.fixture(autouse=True)
+    def require_sentence_transformers(self):
+        pytest.importorskip("sentence_transformers", reason="sentence-transformers not installed")
+
+    def test_output_dimensions(self):
+        from app.vector_store import SentenceTransformerEmbedder
+
+        embedder = SentenceTransformerEmbedder()
+        vec = embedder.embed("hello world")
+        assert len(vec) == 384
+
+    def test_output_is_normalized(self):
+        from app.vector_store import SentenceTransformerEmbedder
+
+        embedder = SentenceTransformerEmbedder()
+        vec = embedder.embed("test document about python")
+        length = math.sqrt(sum(v * v for v in vec))
+        assert abs(length - 1.0) < 1e-6
+
+    def test_empty_text_returns_zero_vector(self):
+        from app.vector_store import SentenceTransformerEmbedder
+
+        embedder = SentenceTransformerEmbedder()
+        vec = embedder.embed("")
+        assert all(v == 0.0 for v in vec)
+        assert len(vec) == 384
+
+    def test_semantic_similarity_beats_unrelated(self):
+        """Semantically similar phrases must score higher than unrelated ones."""
+        from app.vector_store import SentenceTransformerEmbedder
+
+        embedder = SentenceTransformerEmbedder()
+        a = embedder.embed("car automobile vehicle")
+        b = embedder.embed("automobile sedan driving")
+        c = embedder.embed("quantum physics neutron star")
+        sim_ab = cosine_similarity(a, b)
+        sim_ac = cosine_similarity(a, c)
+        assert sim_ab > sim_ac, f"Expected {sim_ab:.4f} > {sim_ac:.4f}"
+
+    def test_returns_list_of_floats(self):
+        from app.vector_store import SentenceTransformerEmbedder
+
+        embedder = SentenceTransformerEmbedder()
+        vec = embedder.embed("hello")
+        assert isinstance(vec, list)
+        assert all(isinstance(v, float) for v in vec)
+
+
+# ── VectorKnowledgeBase embedder injection ──
+
+
+class TestVectorKnowledgeBaseEmbedderInjection:
+    def test_accepts_custom_embedder(self, tmp_db_path):
+        embedder = HashingEmbedder()
+        store = VectorKnowledgeBase(db_path=tmp_db_path, embedder=embedder)
+        doc = store.create_document("Test", "Content")
+        assert doc is not None
+        store.close()
+
+    def test_uses_injected_embedder_not_default(self, tmp_db_path):
+        """Verify custom embedder is called, not the default one."""
+
+        class TrackingEmbedder:
+            dimensions = 384
+
+            def __init__(self):
+                self.call_count = 0
+
+            def embed(self, text: str) -> list[float]:
+                self.call_count += 1
+                return [0.0] * self.dimensions
+
+        tracker = TrackingEmbedder()
+        store = VectorKnowledgeBase(db_path=tmp_db_path, embedder=tracker)
+        store.create_document("Title", "Content")
+        assert tracker.call_count >= 1
+        store.close()
+
+
+# ── reindex_all ──
+
+
+class TestReindexAll:
+    def test_reindex_all_returns_document_count(self, kb):
+        kb.create_document("Doc A", "First document content")
+        kb.create_document("Doc B", "Second document content")
+        count = kb.reindex_all()
+        assert count == 2
+
+    def test_reindex_empty_kb_returns_zero(self, kb):
+        count = kb.reindex_all()
+        assert count == 0
+
+    def test_reindex_preserves_content(self, kb):
+        doc = kb.create_document("Preserved", "Should stay intact")
+        kb.reindex_all()
+        fetched = kb.get_document(doc["id"])
+        assert fetched["title"] == "Preserved"
+        assert fetched["content"] == "Should stay intact"
+
+    def test_reindex_updates_vectors_so_search_still_works(self, kb):
+        kb.create_document("Python Guide", "python programming")
+        kb.reindex_all()
+        results = kb.search("python")
+        assert len(results) > 0
+
+
 # ── Content preview ──
 
 

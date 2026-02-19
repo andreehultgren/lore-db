@@ -3,7 +3,7 @@ import tempfile
 
 import pytest
 
-from app.vector_store import VectorKnowledgeBase
+from app.vector_store import HashingEmbedder, VectorKnowledgeBase
 
 
 @pytest.fixture()
@@ -14,8 +14,12 @@ def tmp_db_path(tmp_path):
 
 @pytest.fixture()
 def kb(tmp_db_path):
-    """Create a VectorKnowledgeBase backed by a temporary database."""
-    store = VectorKnowledgeBase(db_path=tmp_db_path)
+    """Create a VectorKnowledgeBase backed by a temporary database.
+
+    Uses HashingEmbedder to avoid loading the sentence-transformers model
+    during unit tests, keeping the test suite fast.
+    """
+    store = VectorKnowledgeBase(db_path=tmp_db_path, embedder=HashingEmbedder())
     yield store
     store.close()
 
