@@ -12,6 +12,7 @@ from .models import (
     DocumentUpdate,
     SearchRequest,
     SearchResult,
+    StaleDocument,
 )
 from .service import get_kb, list_namespaces, reload_kb
 
@@ -106,6 +107,22 @@ def delete_document(document_id: str, x_kb_namespace: str = Header("")) -> None:
     deleted = get_kb(x_kb_namespace).delete_document(document_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Document not found")
+
+
+@app.post("/documents/{document_id}/verify", response_model=Document)
+def verify_document(document_id: str, x_kb_namespace: str = Header("")) -> dict:
+    verified = get_kb(x_kb_namespace).verify_document(document_id)
+    if verified is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return verified
+
+
+@app.get("/stale-documents", response_model=list[StaleDocument])
+def get_stale_documents(
+    days_threshold: int = Query(default=30, ge=1),
+    x_kb_namespace: str = Header(""),
+) -> list[dict]:
+    return get_kb(x_kb_namespace).get_stale_documents(days_threshold=days_threshold)
 
 
 @app.post("/search", response_model=list[SearchResult])

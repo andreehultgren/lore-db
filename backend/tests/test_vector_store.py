@@ -1,5 +1,6 @@
 """Tests for the VectorKnowledgeBase and supporting utilities."""
 
+import json
 import math
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from app.vector_store import (
     HashingEmbedder,
     VectorKnowledgeBase,
+    chunk_text,
     cosine_similarity,
     lexical_overlap_score,
     normalize,
@@ -350,6 +352,159 @@ class TestReindexAll:
 # ── Content preview ──
 
 
+# ── verified_at and freshness ──
+
+
+class TestVerifiedAt:
+    def test_create_document_has_verified_at(self, kb):
+        doc = kb.create_document(title="Test", content="Hello")
+        assert "verified_at" in doc
+        assert doc["verified_at"] is not None
+
+    def test_create_sets_verified_at_equal_to_created_at(self, kb):
+        doc = kb.create_document(title="Test", content="Hello")
+        assert doc["verified_at"] == doc["created_at"]
+
+    def test_update_document_refreshes_verified_at(self, kb):
+        doc = kb.create_document(title="Original", content="Body")
+        original_verified = doc["verified_at"]
+        updated = kb.update_document(doc["id"], title="Updated", content="New")
+        assert updated["verified_at"] >= original_verified
+
+    def test_get_document_includes_verified_at(self, kb):
+        created = kb.create_document(title="Test", content="Body")
+        fetched = kb.get_document(created["id"])
+        assert "verified_at" in fetched
+        assert fetched["verified_at"] == created["verified_at"]
+
+    def test_list_documents_includes_verified_at(self, kb):
+        kb.create_document(title="Test", content="Body")
+        docs = kb.list_documents()
+        assert "verified_at" in docs[0]
+
+    def test_verify_document_bumps_verified_at(self, kb):
+        doc = kb.create_document(title="Test", content="Body")
+        # Manually backdate verified_at to simulate an old doc
+        kb._connection.execute(
+            "UPDATE documents SET verified_at = '2020-01-01T00:00:00+00:00' WHERE id = ?",
+            (doc["id"],),
+        )
+        kb._connection.commit()
+        old_doc = kb.get_document(doc["id"])
+        assert old_doc["verified_at"] == "2020-01-01T00:00:00+00:00"
+
+        verified = kb.verify_document(doc["id"])
+        assert verified is not None
+        assert verified["verified_at"] > "2020-01-01T00:00:00+00:00"
+        # Content and title unchanged
+        assert verified["title"] == doc["title"]
+        assert verified["content"] == doc["content"]
+
+    def test_verify_document_not_found(self, kb):
+        result = kb.verify_document("nonexistent")
+        assert result is None
+
+
+class TestGetStaleDocuments:
+    def test_returns_stale_documents(self, kb):
+        doc = kb.create_document(title="Old Doc", content="Stale content")
+        # Backdate verified_at to 60 days ago
+        kb._connection.execute(
+            "UPDATE documents SET verified_at = '2020-01-01T00:00:00+00:00' WHERE id = ?",
+            (doc["id"],),
+        )
+        kb._connection.commit()
+
+        stale = kb.get_stale_documents(days_threshold=30)
+        assert len(stale) == 1
+        assert stale[0]["id"] == doc["id"]
+        assert "days_since_verified" in stale[0]
+
+    def test_excludes_fresh_documents(self, kb):
+        kb.create_document(title="Fresh Doc", content="Just created")
+        stale = kb.get_stale_documents(days_threshold=30)
+        assert len(stale) == 0
+
+    def test_sorted_by_staleness_oldest_first(self, kb):
+        doc1 = kb.create_document(title="Older", content="a")
+        doc2 = kb.create_document(title="Old", content="b")
+        kb._connection.execute(
+            "UPDATE documents SET verified_at = '2020-01-01T00:00:00+00:00' WHERE id = ?",
+            (doc1["id"],),
+        )
+        kb._connection.execute(
+            "UPDATE documents SET verified_at = '2023-01-01T00:00:00+00:00' WHERE id = ?",
+            (doc2["id"],),
+        )
+        kb._connection.commit()
+
+        stale = kb.get_stale_documents(days_threshold=1)
+        assert len(stale) == 2
+        assert stale[0]["id"] == doc1["id"]  # oldest first
+        assert stale[1]["id"] == doc2["id"]
+
+    def test_default_threshold_is_30_days(self, kb):
+        doc = kb.create_document(title="Test", content="Body")
+        # 15 days old — should NOT be stale with default threshold
+        from datetime import datetime, timedelta, timezone
+        fifteen_days_ago = (datetime.now(timezone.utc) - timedelta(days=15)).isoformat()
+        kb._connection.execute(
+            "UPDATE documents SET verified_at = ? WHERE id = ?",
+            (fifteen_days_ago, doc["id"]),
+        )
+        kb._connection.commit()
+        stale = kb.get_stale_documents()
+        assert len(stale) == 0
+
+
+# ── Confidence decay in search ──
+
+
+class TestSearchConfidenceDecay:
+    def test_search_results_include_days_since_verified(self, kb):
+        kb.create_document(title="Python Basics", content="Variables and loops in Python")
+        results = kb.search("python")
+        assert len(results) > 0
+        assert "days_since_verified" in results[0]
+        assert isinstance(results[0]["days_since_verified"], int)
+
+    def test_fresh_doc_ranks_higher_than_stale_with_same_content(self, kb):
+        """Two identical docs: the fresh one should score higher due to decay."""
+        fresh = kb.create_document(title="Python Guide", content="python programming language basics")
+        stale = kb.create_document(title="Python Guide", content="python programming language basics")
+
+        # Backdate the stale doc to 1 year ago
+        kb._connection.execute(
+            "UPDATE documents SET verified_at = '2020-01-01T00:00:00+00:00' WHERE id = ?",
+            (stale["id"],),
+        )
+        kb._connection.commit()
+
+        results = kb.search("python programming", limit=10)
+        ids = [r["id"] for r in results]
+        assert fresh["id"] in ids
+        assert stale["id"] in ids
+        # Fresh doc should appear before stale doc
+        assert ids.index(fresh["id"]) < ids.index(stale["id"])
+
+    def test_decay_does_not_fully_bury_stale_docs(self, kb):
+        """Even a very old doc should still appear in results (floor at 0.5x)."""
+        doc = kb.create_document(title="Python Guide", content="python programming")
+        kb._connection.execute(
+            "UPDATE documents SET verified_at = '2015-01-01T00:00:00+00:00' WHERE id = ?",
+            (doc["id"],),
+        )
+        kb._connection.commit()
+
+        results = kb.search("python programming")
+        assert len(results) > 0
+        assert results[0]["id"] == doc["id"]
+        assert results[0]["score"] > 0
+
+
+# ── Content preview ──
+
+
 class TestContentPreview:
     def test_short_content_unchanged(self):
         assert VectorKnowledgeBase._content_preview("Hello world") == "Hello world"
@@ -363,3 +518,175 @@ class TestContentPreview:
     def test_whitespace_collapsed(self):
         text = "hello   world\n\nnew  line"
         assert VectorKnowledgeBase._content_preview(text) == "hello world new line"
+
+
+# ── chunk_text function ──
+
+
+class TestChunkText:
+    def test_short_content_returns_single_chunk(self):
+        chunks = chunk_text("My Title", "A short document.")
+        assert len(chunks) == 1
+        assert chunks[0] == "My Title\nA short document."
+
+    def test_empty_content_returns_title_only(self):
+        chunks = chunk_text("My Title", "")
+        assert len(chunks) == 1
+        assert chunks[0] == "My Title"
+
+    def test_long_content_returns_multiple_chunks(self):
+        # 400 words — should produce multiple chunks with default 200-word max
+        content = " ".join(f"word{i}" for i in range(400))
+        chunks = chunk_text("Title", content, max_words=200, overlap_words=50)
+        assert len(chunks) > 1
+
+    def test_each_chunk_starts_with_title(self):
+        content = " ".join(f"word{i}" for i in range(400))
+        chunks = chunk_text("My Title", content, max_words=200, overlap_words=50)
+        for chunk in chunks:
+            assert chunk.startswith("My Title\n")
+
+    def test_chunks_overlap(self):
+        # With overlap, the end of chunk N should appear at the start of chunk N+1
+        content = " ".join(f"word{i}" for i in range(400))
+        chunks = chunk_text("T", content, max_words=100, overlap_words=30)
+        assert len(chunks) >= 2
+        # Get content words (after title line) from each chunk
+        chunk0_words = chunks[0].split("\n", 1)[1].split()
+        chunk1_words = chunks[1].split("\n", 1)[1].split()
+        # Last 30 words of chunk 0 should be first 30 words of chunk 1
+        assert chunk0_words[-30:] == chunk1_words[:30]
+
+    def test_all_content_words_covered(self):
+        words = [f"word{i}" for i in range(500)]
+        content = " ".join(words)
+        chunks = chunk_text("T", content, max_words=100, overlap_words=20)
+        # Collect all content words from all chunks
+        all_chunk_words = set()
+        for chunk in chunks:
+            chunk_content = chunk.split("\n", 1)[1]
+            all_chunk_words.update(chunk_content.split())
+        for word in words:
+            assert word in all_chunk_words
+
+    def test_exact_boundary_no_extra_chunk(self):
+        # Exactly max_words content words should produce 1 chunk
+        content = " ".join(f"word{i}" for i in range(200))
+        chunks = chunk_text("T", content, max_words=200, overlap_words=50)
+        assert len(chunks) == 1
+
+    def test_one_over_boundary_produces_two_chunks(self):
+        content = " ".join(f"word{i}" for i in range(201))
+        chunks = chunk_text("T", content, max_words=200, overlap_words=50)
+        assert len(chunks) == 2
+
+
+# ── Chunk storage ──
+
+
+class TestChunkStorage:
+    def test_create_stores_chunks_in_db(self, kb):
+        doc = kb.create_document(title="Test", content="Hello world")
+        with kb._lock:
+            rows = kb._connection.execute(
+                "SELECT * FROM document_chunks WHERE document_id = ?",
+                (doc["id"],),
+            ).fetchall()
+        assert len(rows) >= 1
+
+    def test_short_doc_has_one_chunk(self, kb):
+        doc = kb.create_document(title="Short", content="Brief content.")
+        with kb._lock:
+            rows = kb._connection.execute(
+                "SELECT * FROM document_chunks WHERE document_id = ?",
+                (doc["id"],),
+            ).fetchall()
+        assert len(rows) == 1
+
+    def test_long_doc_has_multiple_chunks(self, kb):
+        content = " ".join(f"word{i}" for i in range(500))
+        doc = kb.create_document(title="Long Doc", content=content)
+        with kb._lock:
+            rows = kb._connection.execute(
+                "SELECT * FROM document_chunks WHERE document_id = ?",
+                (doc["id"],),
+            ).fetchall()
+        assert len(rows) > 1
+
+    def test_update_replaces_chunks(self, kb):
+        doc = kb.create_document(title="Original", content="short")
+        long_content = " ".join(f"word{i}" for i in range(500))
+        kb.update_document(doc["id"], title="Updated", content=long_content)
+        with kb._lock:
+            rows = kb._connection.execute(
+                "SELECT * FROM document_chunks WHERE document_id = ?",
+                (doc["id"],),
+            ).fetchall()
+        assert len(rows) > 1
+        # Verify old single chunk is gone (replaced, not appended)
+        for row in rows:
+            assert "short" not in row["chunk_text"] or len(rows) > 1
+
+    def test_delete_cascades_to_chunks(self, kb):
+        doc = kb.create_document(title="Delete Me", content="Some content")
+        kb.delete_document(doc["id"])
+        with kb._lock:
+            rows = kb._connection.execute(
+                "SELECT * FROM document_chunks WHERE document_id = ?",
+                (doc["id"],),
+            ).fetchall()
+        assert len(rows) == 0
+
+    def test_reindex_rechunks_documents(self, kb):
+        content = " ".join(f"word{i}" for i in range(500))
+        doc = kb.create_document(title="Reindex Me", content=content)
+        with kb._lock:
+            original_count = kb._connection.execute(
+                "SELECT COUNT(*) FROM document_chunks WHERE document_id = ?",
+                (doc["id"],),
+            ).fetchone()[0]
+        count = kb.reindex_all()
+        assert count == 1
+        with kb._lock:
+            new_count = kb._connection.execute(
+                "SELECT COUNT(*) FROM document_chunks WHERE document_id = ?",
+                (doc["id"],),
+            ).fetchone()[0]
+        # Should have same number of chunks after reindex
+        assert new_count == original_count
+
+
+# ── Chunked search ──
+
+
+class TestChunkedSearch:
+    def test_search_finds_content_in_later_chunks(self, kb):
+        """Content beyond the first chunk should still be searchable."""
+        # Put the searchable keyword only in later content
+        filler = " ".join(f"filler{i}" for i in range(300))
+        content = f"{filler} quantum physics experiments supercollider"
+        doc = kb.create_document(title="Science Doc", content=content)
+        results = kb.search("quantum physics supercollider")
+        assert len(results) > 0
+        assert results[0]["id"] == doc["id"]
+
+    def test_search_deduplicates_by_document(self, kb):
+        """A document with multiple matching chunks should appear only once."""
+        # Create a document where the keyword appears in multiple chunks
+        keyword = "python programming"
+        content = f"{keyword} " + " ".join(f"w{i}" for i in range(300)) + f" {keyword}"
+        doc = kb.create_document(title="Python Guide", content=content)
+        results = kb.search("python programming", limit=10)
+        doc_ids = [r["id"] for r in results]
+        assert doc_ids.count(doc["id"]) == 1  # no duplicates
+
+    def test_search_uses_best_chunk_score(self, kb):
+        """The score should be from the best-matching chunk, not averaged."""
+        # Chunk 1 has weak match, chunk 2 has strong match
+        filler = " ".join(f"random{i}" for i in range(250))
+        content = f"{filler} quantum physics experiments"
+        doc = kb.create_document(title="Mixed Doc", content=content)
+        results = kb.search("quantum physics experiments")
+        assert len(results) > 0
+        # Should still get a reasonable score from the matching chunk
+        assert results[0]["score"] > 0

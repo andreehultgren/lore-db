@@ -175,6 +175,112 @@ class TestDocumentsCRUD:
         assert len(resp.json()) == 2
 
 
+# ── Verify Document ──
+
+
+class TestVerifyDocument:
+    def test_verify_document_returns_updated_doc(self, client):
+        create_resp = client.post(
+            "/documents",
+            json={"title": "Verify Me", "content": "Body"},
+            headers={NS_HEADER: ""},
+        )
+        doc_id = create_resp.json()["id"]
+
+        resp = client.post(f"/documents/{doc_id}/verify", headers={NS_HEADER: ""})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["title"] == "Verify Me"
+        assert data["content"] == "Body"
+        assert "verified_at" in data
+
+    def test_verify_document_not_found(self, client):
+        resp = client.post("/documents/nonexistent/verify", headers={NS_HEADER: ""})
+        assert resp.status_code == 404
+
+    def test_verify_does_not_change_content(self, client):
+        create_resp = client.post(
+            "/documents",
+            json={"title": "Stable", "content": "Original content"},
+            headers={NS_HEADER: ""},
+        )
+        doc_id = create_resp.json()["id"]
+
+        client.post(f"/documents/{doc_id}/verify", headers={NS_HEADER: ""})
+        get_resp = client.get(f"/documents/{doc_id}", headers={NS_HEADER: ""})
+        assert get_resp.json()["title"] == "Stable"
+        assert get_resp.json()["content"] == "Original content"
+
+
+# ── Stale Documents ──
+
+
+class TestStaleDocuments:
+    def test_get_stale_documents_empty(self, client):
+        resp = client.get("/stale-documents", headers={NS_HEADER: ""})
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_get_stale_documents_with_threshold(self, client):
+        # Create a doc, then it's fresh so shouldn't appear
+        client.post(
+            "/documents",
+            json={"title": "Fresh Doc", "content": ""},
+            headers={NS_HEADER: ""},
+        )
+        resp = client.get("/stale-documents?days_threshold=30", headers={NS_HEADER: ""})
+        assert resp.status_code == 200
+        assert len(resp.json()) == 0
+
+
+# ── Document response includes verified_at ──
+
+
+class TestDocumentVerifiedAtField:
+    def test_created_document_has_verified_at(self, client):
+        resp = client.post(
+            "/documents",
+            json={"title": "Test", "content": "Body"},
+            headers={NS_HEADER: ""},
+        )
+        assert resp.status_code == 201
+        assert "verified_at" in resp.json()
+
+    def test_get_document_has_verified_at(self, client):
+        create_resp = client.post(
+            "/documents",
+            json={"title": "Test", "content": "Body"},
+            headers={NS_HEADER: ""},
+        )
+        doc_id = create_resp.json()["id"]
+        resp = client.get(f"/documents/{doc_id}", headers={NS_HEADER: ""})
+        assert "verified_at" in resp.json()
+
+    def test_list_documents_has_verified_at(self, client):
+        client.post(
+            "/documents",
+            json={"title": "Test", "content": "Body"},
+            headers={NS_HEADER: ""},
+        )
+        resp = client.get("/documents", headers={NS_HEADER: ""})
+        assert "verified_at" in resp.json()[0]
+
+    def test_search_results_include_days_since_verified(self, client):
+        client.post(
+            "/documents",
+            json={"title": "Python Guide", "content": "Learn Python"},
+            headers={NS_HEADER: ""},
+        )
+        resp = client.post(
+            "/search",
+            json={"query": "python"},
+            headers={NS_HEADER: ""},
+        )
+        results = resp.json()
+        assert len(results) > 0
+        assert "days_since_verified" in results[0]
+
+
 # ── Search ──
 
 

@@ -394,26 +394,6 @@ class TestMCPEventLogging:
         assert payload["document_id"] == "doc-1"
         assert payload["document_title"] == "Python Guide"
 
-    def test_list_documents_logs_event_via_api(self, monkeypatch):
-        """list_documents posts a list_documents event when using the API proxy."""
-        import app.mcp_server as mod
-
-        calls = []
-
-        def fake_api_request(method, path, payload=None):
-            calls.append((method, path, payload))
-            if path == "/documents":
-                return []
-            return None
-
-        monkeypatch.setattr(mod, "API_BASE", "http://backend:8000")
-        monkeypatch.setattr(mod, "_api_request", fake_api_request)
-        mod.list_documents()
-
-        analytics_calls = [c for c in calls if c[1] == "/analytics/events"]
-        assert len(analytics_calls) == 1
-        assert analytics_calls[0][2]["event_type"] == "list_documents"
-
     def test_analytics_failure_does_not_break_tool(self, monkeypatch):
         """If the analytics POST fails, the tool still returns its result."""
         import app.mcp_server as mod
@@ -469,6 +449,90 @@ class TestMCPEventLogging:
 
         assert called == [True]
         assert result == {"ok": True, "reindexed": 5}
+
+    def test_verify_document_logs_event_via_api(self, monkeypatch):
+        """verify_document posts a verify_document event when using the API proxy."""
+        import app.mcp_server as mod
+
+        calls = []
+
+        def fake_api_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            if "/documents/" in path and path.endswith("/verify"):
+                return {"id": "doc-1", "title": "Test", "content": "...", "verified_at": "2026-01-01T00:00:00+00:00"}
+            return None
+
+        monkeypatch.setattr(mod, "API_BASE", "http://backend:8000")
+        monkeypatch.setattr(mod, "_api_request", fake_api_request)
+        result = mod.verify_document(document_id="doc-1")
+
+        assert result["ok"] is True
+        analytics_calls = [c for c in calls if c[1] == "/analytics/events"]
+        assert len(analytics_calls) == 1
+        assert analytics_calls[0][2]["event_type"] == "verify_document"
+
+    def test_verify_document_direct_kb(self, monkeypatch):
+        """verify_document calls verify_document() on the KB when no API proxy is set."""
+        import app.mcp_server as mod
+
+        monkeypatch.setattr(mod, "API_BASE", "")
+
+        class FakeKB:
+            def verify_document(self, document_id):
+                return {"id": document_id, "title": "Test", "content": "Body", "verified_at": "2026-01-01T00:00:00+00:00"}
+
+        monkeypatch.setattr(mod, "get_kb", lambda ns="": FakeKB())
+        result = mod.verify_document(document_id="doc-1")
+        assert result["ok"] is True
+        assert result["document"]["id"] == "doc-1"
+
+    def test_verify_document_not_found_direct(self, monkeypatch):
+        """verify_document returns error when doc not found in direct mode."""
+        import app.mcp_server as mod
+
+        monkeypatch.setattr(mod, "API_BASE", "")
+
+        class FakeKB:
+            def verify_document(self, document_id):
+                return None
+
+        monkeypatch.setattr(mod, "get_kb", lambda ns="": FakeKB())
+        result = mod.verify_document(document_id="nonexistent")
+        assert result["ok"] is False
+
+    def test_get_stale_documents_via_api(self, monkeypatch):
+        """get_stale_documents fetches stale docs from the API proxy."""
+        import app.mcp_server as mod
+
+        calls = []
+
+        def fake_api_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            if "/stale-documents" in path:
+                return [{"id": "d1", "title": "Old Doc", "verified_at": "2020-01-01T00:00:00+00:00", "days_since_verified": 2000}]
+            return None
+
+        monkeypatch.setattr(mod, "API_BASE", "http://backend:8000")
+        monkeypatch.setattr(mod, "_api_request", fake_api_request)
+        result = mod.get_stale_documents(days_threshold=30)
+
+        assert result["ok"] is True
+        assert len(result["stale_documents"]) == 1
+
+    def test_get_stale_documents_direct_kb(self, monkeypatch):
+        """get_stale_documents calls get_stale_documents() on the KB in direct mode."""
+        import app.mcp_server as mod
+
+        monkeypatch.setattr(mod, "API_BASE", "")
+
+        class FakeKB:
+            def get_stale_documents(self, days_threshold=30):
+                return [{"id": "d1", "title": "Old", "verified_at": "2020-01-01", "days_since_verified": 2000}]
+
+        monkeypatch.setattr(mod, "get_kb", lambda ns="": FakeKB())
+        result = mod.get_stale_documents(days_threshold=30)
+        assert result["ok"] is True
+        assert len(result["stale_documents"]) == 1
 
     def test_search_logs_include_namespace(self, monkeypatch):
         """Analytics event includes the active namespace."""

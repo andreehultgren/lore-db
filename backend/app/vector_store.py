@@ -76,6 +76,34 @@ def lexical_overlap_score(query_terms: set[str], document_terms: set[str]) -> fl
     return len(query_terms & document_terms) / len(query_terms)
 
 
+def chunk_text(
+    title: str,
+    content: str,
+    max_words: int = 200,
+    overlap_words: int = 50,
+) -> list[str]:
+    """Split document into overlapping chunks, each prefixed with the title.
+
+    Returns at least one chunk. Short documents (≤ max_words content words)
+    produce a single chunk. Longer documents are split with overlap so context
+    at chunk boundaries is preserved.
+    """
+    words = content.split()
+    if not words:
+        return [title]
+    if len(words) <= max_words:
+        return [f"{title}\n{content}"]
+
+    chunks: list[str] = []
+    step = max(max_words - overlap_words, 1)
+    start = 0
+    while start < len(words):
+        chunk_words = words[start : start + max_words]
+        chunks.append(f"{title}\n{' '.join(chunk_words)}")
+        start += step
+    return chunks
+
+
 class HashingEmbedder:
     def __init__(self, dimensions: int = 384) -> None:
         self.dimensions = dimensions
@@ -97,19 +125,33 @@ class HashingEmbedder:
 
 
 class SentenceTransformerEmbedder:
-    """Semantic embedder using sentence-transformers all-MiniLM-L6-v2 (384-dim).
+    """Semantic embedder using sentence-transformers (384-dim by default).
 
     The underlying model is loaded lazily on the first embed() call and then
     cached as a module-level singleton, so repeated instantiation is free.
+
+    Set the ``KB_EMBEDDING_MODEL`` env var to switch models (e.g.
+    ``BAAI/bge-small-en-v1.5`` for a 512-token window). After changing the
+    model, run ``reindex_documents()`` to re-chunk and re-embed all documents.
     """
 
-    MODEL_NAME = "all-MiniLM-L6-v2"
-    dimensions = 384
+    DEFAULT_MODEL = "all-MiniLM-L6-v2"
+
+    def __init__(self) -> None:
+        import os
+
+        self.model_name = os.getenv("KB_EMBEDDING_MODEL", self.DEFAULT_MODEL)
+
+    @property
+    def dimensions(self) -> int:  # type: ignore[override]
+        model = _load_st_model(self.model_name)
+        return model.get_sentence_embedding_dimension()
 
     def embed(self, text: str) -> list[float]:
         if not text or not text.strip():
-            return [0.0] * self.dimensions
-        model = _load_st_model(self.MODEL_NAME)
+            model = _load_st_model(self.model_name)
+            return [0.0] * model.get_sentence_embedding_dimension()
+        model = _load_st_model(self.model_name)
         embedding = model.encode(text, normalize_embeddings=True)
         return embedding.tolist()
 
@@ -141,23 +183,95 @@ class VectorKnowledgeBase:
                     title TEXT NOT NULL,
                     content TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    verified_at TEXT NOT NULL DEFAULT ''
                 );
 
-                CREATE TABLE IF NOT EXISTS document_vectors (
-                    document_id TEXT PRIMARY KEY,
+                CREATE TABLE IF NOT EXISTS document_chunks (
+                    chunk_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    chunk_text TEXT NOT NULL,
                     vector_json TEXT NOT NULL,
                     FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
                 );
+
+                CREATE INDEX IF NOT EXISTS idx_chunks_document_id
+                    ON document_chunks(document_id);
 
                 CREATE INDEX IF NOT EXISTS idx_documents_updated_at
                     ON documents(updated_at DESC);
                 """
             )
+            # Migrate existing databases that lack verified_at
+            try:
+                self._connection.execute(
+                    "ALTER TABLE documents ADD COLUMN verified_at TEXT NOT NULL DEFAULT ''"
+                )
+                self._connection.execute(
+                    "UPDATE documents SET verified_at = updated_at WHERE verified_at = ''"
+                )
+                self._connection.commit()
+            except sqlite3.OperationalError:
+                pass
+            # Migrate from old document_vectors table to document_chunks
+            self._migrate_vectors_to_chunks()
             self._connection.commit()
 
+    def _migrate_vectors_to_chunks(self) -> None:
+        """Migrate data from old document_vectors table to document_chunks."""
+        tables = {
+            row[0]
+            for row in self._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "document_vectors" not in tables:
+            return
+        # Check if there's data to migrate
+        old_rows = self._connection.execute(
+            "SELECT document_id, vector_json FROM document_vectors"
+        ).fetchall()
+        if old_rows:
+            for row in old_rows:
+                chunk_id = uuid.uuid4().hex
+                # Get document text for chunk_text field
+                doc = self._connection.execute(
+                    "SELECT title, content FROM documents WHERE id = ?",
+                    (row["document_id"],),
+                ).fetchone()
+                text = f"{doc['title']}\n{doc['content']}" if doc else ""
+                self._connection.execute(
+                    """
+                    INSERT OR IGNORE INTO document_chunks
+                        (chunk_id, document_id, chunk_index, chunk_text, vector_json)
+                    VALUES (?, ?, 0, ?, ?)
+                    """,
+                    (chunk_id, row["document_id"], text, row["vector_json"]),
+                )
+        self._connection.execute("DROP TABLE document_vectors")
+
+    def _store_chunks(self, document_id: str, title: str, content: str) -> None:
+        """Chunk a document, embed each chunk, and store in document_chunks."""
+        chunks = chunk_text(title, content)
+        # Delete existing chunks for this document
+        self._connection.execute(
+            "DELETE FROM document_chunks WHERE document_id = ?", (document_id,)
+        )
+        for idx, text in enumerate(chunks):
+            vector = self._embedder.embed(text)
+            chunk_id = uuid.uuid4().hex
+            self._connection.execute(
+                """
+                INSERT INTO document_chunks
+                    (chunk_id, document_id, chunk_index, chunk_text, vector_json)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (chunk_id, document_id, idx, text, json.dumps(vector)),
+            )
+
     def reindex_all(self) -> int:
-        """Re-embed all documents with the current embedder. Returns count of reindexed docs."""
+        """Re-chunk and re-embed all documents. Returns count of reindexed docs."""
         with self._lock:
             rows = self._connection.execute(
                 "SELECT id, title, content FROM documents"
@@ -165,16 +279,8 @@ class VectorKnowledgeBase:
 
         count = 0
         for row in rows:
-            vector = self._embedder.embed(f"{row['title']}\n{row['content']}")
             with self._lock:
-                self._connection.execute(
-                    """
-                    INSERT INTO document_vectors (document_id, vector_json)
-                    VALUES (?, ?)
-                    ON CONFLICT(document_id) DO UPDATE SET vector_json = excluded.vector_json
-                    """,
-                    (row["id"], json.dumps(vector)),
-                )
+                self._store_chunks(row["id"], row["title"], row["content"])
                 self._connection.commit()
             count += 1
 
@@ -188,7 +294,7 @@ class VectorKnowledgeBase:
         with self._lock:
             rows = self._connection.execute(
                 """
-                SELECT id, title, content, created_at, updated_at
+                SELECT id, title, content, created_at, updated_at, verified_at
                 FROM documents
                 ORDER BY updated_at DESC
                 """
@@ -199,7 +305,7 @@ class VectorKnowledgeBase:
         with self._lock:
             row = self._connection.execute(
                 """
-                SELECT id, title, content, created_at, updated_at
+                SELECT id, title, content, created_at, updated_at, verified_at
                 FROM documents
                 WHERE id = ?
                 """,
@@ -210,23 +316,16 @@ class VectorKnowledgeBase:
     def create_document(self, title: str, content: str) -> dict:
         document_id = uuid.uuid4().hex
         now = utc_now_iso()
-        vector = self._embedder.embed(f"{title}\n{content}")
 
         with self._lock:
             self._connection.execute(
                 """
-                INSERT INTO documents (id, title, content, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO documents (id, title, content, created_at, updated_at, verified_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (document_id, title, content, now, now),
+                (document_id, title, content, now, now, now),
             )
-            self._connection.execute(
-                """
-                INSERT INTO document_vectors (document_id, vector_json)
-                VALUES (?, ?)
-                """,
-                (document_id, json.dumps(vector)),
-            )
+            self._store_chunks(document_id, title, content)
             self._connection.commit()
 
         created = self.get_document(document_id)
@@ -238,29 +337,20 @@ class VectorKnowledgeBase:
         self, document_id: str, title: str, content: str
     ) -> dict | None:
         now = utc_now_iso()
-        vector = self._embedder.embed(f"{title}\n{content}")
 
         with self._lock:
             update_result = self._connection.execute(
                 """
                 UPDATE documents
-                SET title = ?, content = ?, updated_at = ?
+                SET title = ?, content = ?, updated_at = ?, verified_at = ?
                 WHERE id = ?
                 """,
-                (title, content, now, document_id),
+                (title, content, now, now, document_id),
             )
             if update_result.rowcount == 0:
                 return None
 
-            self._connection.execute(
-                """
-                INSERT INTO document_vectors (document_id, vector_json)
-                VALUES (?, ?)
-                ON CONFLICT(document_id)
-                DO UPDATE SET vector_json = excluded.vector_json
-                """,
-                (document_id, json.dumps(vector)),
-            )
+            self._store_chunks(document_id, title, content)
             self._connection.commit()
 
         return self.get_document(document_id)
@@ -277,6 +367,47 @@ class VectorKnowledgeBase:
             self._connection.commit()
         return result.rowcount > 0
 
+    def verify_document(self, document_id: str) -> dict | None:
+        """Bump verified_at without changing content or title. Returns updated doc or None."""
+        now = utc_now_iso()
+        with self._lock:
+            result = self._connection.execute(
+                "UPDATE documents SET verified_at = ? WHERE id = ?",
+                (now, document_id),
+            )
+            if result.rowcount == 0:
+                return None
+            self._connection.commit()
+        return self.get_document(document_id)
+
+    def get_stale_documents(self, days_threshold: int = 30) -> list[dict]:
+        """Return documents not verified within days_threshold, oldest first."""
+        now = datetime.now(timezone.utc)
+        docs = self.list_documents()
+        stale: list[dict] = []
+        for doc in docs:
+            verified = datetime.fromisoformat(doc["verified_at"])
+            days = (now - verified).days
+            if days >= days_threshold:
+                stale.append({
+                    "id": doc["id"],
+                    "title": doc["title"],
+                    "verified_at": doc["verified_at"],
+                    "days_since_verified": days,
+                })
+        stale.sort(key=lambda d: d["verified_at"])
+        return stale
+
+    @staticmethod
+    def _days_since(iso_timestamp: str) -> int:
+        verified = datetime.fromisoformat(iso_timestamp)
+        return (datetime.now(timezone.utc) - verified).days
+
+    @staticmethod
+    def _freshness_decay(days: int) -> float:
+        """Confidence decay: 1.0 for fresh docs, floors at 0.5 for 1yr+ old."""
+        return max(0.5, 1.0 - (days / 365.0))
+
     def search(self, query: str, limit: int = 5) -> list[dict]:
         query_vector = self._embedder.embed(query)
         query_terms = set(normalized_tokens(query))
@@ -284,36 +415,42 @@ class VectorKnowledgeBase:
         with self._lock:
             rows = self._connection.execute(
                 """
-                SELECT d.id, d.title, d.content, v.vector_json
-                FROM documents d
-                INNER JOIN document_vectors v
-                    ON d.id = v.document_id
+                SELECT c.document_id, c.chunk_text, c.vector_json,
+                       d.title, d.content, d.verified_at
+                FROM document_chunks c
+                INNER JOIN documents d ON d.id = c.document_id
                 """
             ).fetchall()
 
-        ranked: list[tuple[float, dict]] = []
+        # Score each chunk, keep best per document
+        best_per_doc: dict[str, tuple[float, dict]] = {}
         for row in rows:
             stored_vector = json.loads(row["vector_json"])
             semantic_score = max(0.0, cosine_similarity(query_vector, stored_vector))
-            document_terms = set(normalized_tokens(f"{row['title']}\n{row['content']}"))
-            lexical_score = lexical_overlap_score(query_terms, document_terms)
-            score = (semantic_score * 0.7) + (lexical_score * 0.3)
+            chunk_terms = set(normalized_tokens(row["chunk_text"]))
+            lexical_score = lexical_overlap_score(query_terms, chunk_terms)
+            raw_score = (semantic_score * 0.7) + (lexical_score * 0.3)
 
-            if score <= 0.0:
+            if raw_score <= 0.0:
                 continue
 
-            ranked.append(
-                (
+            days = self._days_since(row["verified_at"]) if row["verified_at"] else 0
+            decay = self._freshness_decay(days)
+            score = raw_score * decay
+
+            doc_id = row["document_id"]
+            if doc_id not in best_per_doc or score > best_per_doc[doc_id][0]:
+                best_per_doc[doc_id] = (
                     score,
                     {
-                        "id": row["id"],
+                        "id": doc_id,
                         "title": row["title"],
                         "content_preview": self._content_preview(row["content"]),
+                        "days_since_verified": days,
                     },
                 )
-            )
 
-        ranked.sort(key=lambda item: item[0], reverse=True)
+        ranked = sorted(best_per_doc.values(), key=lambda item: item[0], reverse=True)
         return [{**payload, "score": float(score)} for score, payload in ranked[:limit]]
 
     @staticmethod

@@ -4,7 +4,7 @@ A local, vector-based knowledge base with semantic search, a web UI, and an MCP 
 
 - **Python backend** — FastAPI REST API, sentence-transformer embeddings, SQLite storage
 - **React frontend** — document management, semantic search, analytics dashboard
-- **MCP server** — six tools (`list`, `get`, `search`, `create`, `update`, `delete`) over HTTP or stdio
+- **MCP server** — eight tools (`get`, `search`, `create`, `update`, `delete`, `verify`, `stale`, `reindex`) over HTTP or stdio
 - **Multi-namespace** — isolate knowledge bases per project using the `X-KB-Namespace` header or `KB_NAMESPACE` env var
 - **Analytics** — tracks MCP tool usage (searches, views, creates) in a separate SQLite database
 
@@ -86,15 +86,16 @@ Set `X-KB-Namespace` to any alphanumeric slug. Each unique namespace gets its ow
 
 ### Available MCP Tools
 
-| Tool                                | Description                                                      |
-| ----------------------------------- | ---------------------------------------------------------------- |
-| `list_documents`                    | List all document titles and IDs                                 |
-| `get_document(document_id)`         | Fetch full document content                                      |
-| `search_documents(query, limit)`    | Semantic + lexical search                                        |
-| `create_document(title, content)`   | Add a new document                                               |
-| `update_document(document_id, ...)` | Update title and/or content                                      |
-| `delete_document(document_id)`      | Remove a document                                                |
-| `reindex_documents`                 | Re-embed all documents (run after first deploy or model changes) |
+| Tool                                      | Description                                                      |
+| ----------------------------------------- | ---------------------------------------------------------------- |
+| `get_document(document_id)`               | Fetch full document content                                      |
+| `search_documents(query, limit)`          | Semantic + lexical search with freshness decay                   |
+| `create_document(title, content)`         | Add a new document                                               |
+| `update_document(document_id, ...)`       | Update title and/or content                                      |
+| `delete_document(document_id)`            | Remove a document                                                |
+| `verify_document(document_id)`            | Confirm a document is still accurate (bumps freshness timestamp) |
+| `get_stale_documents(days_threshold)`     | Find documents that may be outdated                              |
+| `reindex_documents`                       | Re-embed all documents (run after first deploy or model changes) |
 
 ### Stdio fallback
 

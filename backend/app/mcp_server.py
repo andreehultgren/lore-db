@@ -89,22 +89,6 @@ def _log_event(event_type: str, **kwargs) -> None:
 
 
 @mcp.tool()
-def list_documents() -> list[dict]:
-    """List all documents in the knowledge base (titles and IDs only, no content).
-
-    Use this to get an overview of what exists before deciding to search or read.
-    To retrieve full content, follow up with get_document(document_id)."""
-    if _has_api_proxy():
-        data = _api_request("GET", "/documents")
-        result = data if isinstance(data, list) else []
-        _log_event("list_documents")
-        return result
-    docs = get_kb(_get_namespace()).list_documents()
-    _log_event("list_documents")
-    return docs
-
-
-@mcp.tool()
 def get_document(document_id: str) -> dict:
     """Fetch the full content of a document by its ID.
 
@@ -130,18 +114,17 @@ def create_document(title: str, content: str = "") -> dict:
 
     DOCUMENT STRUCTURE GUIDELINES (important for search quality):
 
-    Search uses sentence-transformer embeddings (all-MiniLM-L6-v2, 256-token window).
-    Each document is embedded as a SINGLE vector. Keep these rules in mind:
+    Documents are automatically split into overlapping ~200-word chunks, each
+    embedded separately. This means long documents are fully searchable — content
+    is never silently truncated. Still, focused documents produce better results:
 
-    - Ideal size: 150–300 words. The model reads at most ~200 words; content beyond
-      that is truncated and invisible to search.
-    - One concept per document. A document covering three topics produces a diluted
-      vector that matches none of them precisely. Split instead.
+    - One concept per document. A document covering three topics dilutes relevance.
+    - Preferred size: 150–500 words. Long enough to be self-contained, short enough
+      to stay focused.
     - Front-load the key idea. The opening sentence carries the most semantic weight.
-    - The title is embedded alongside the content — make it descriptive and specific.
-    - Prefer many small focused documents over one large document.
+    - The title is prepended to every chunk — make it descriptive and specific.
 
-    Good: "Auth - JWT Expiry and Refresh Flow" (150 words on that one topic)
+    Good: "Auth - JWT Expiry and Refresh Flow" (focused on that one topic)
     Bad:  "Authentication System" (2 000 words covering everything auth-related)"""
     if _has_api_proxy():
         document = _api_request(
@@ -163,9 +146,9 @@ def update_document(
 ) -> dict:
     """Update an existing document. Missing fields keep their current values.
 
-    When updating, re-apply the same sizing discipline as create_document:
-    150–300 words, one concept. If a document has grown large and now covers
-    multiple topics, split it into separate documents instead of updating."""
+    When updating, keep documents focused on one concept. If a document has
+    grown to cover multiple unrelated topics, split it into separate documents
+    instead of updating."""
     if _has_api_proxy():
         safe_id = parse.quote(document_id, safe="")
         current = _api_request("GET", f"/documents/{safe_id}")
@@ -215,6 +198,49 @@ def delete_document(document_id: str) -> dict:
         return {"ok": False, "error": "Document not found", "document_id": document_id}
     _log_event("delete_document", document_id=document_id)
     return {"ok": True, "document_id": document_id}
+
+
+@mcp.tool()
+def verify_document(document_id: str) -> dict:
+    """Mark a document as verified — confirms it is still accurate without changing content.
+
+    Call this after reading a document and confirming its information is current.
+    This bumps the verified_at timestamp, which affects search ranking (fresher
+    documents score higher) and removes the document from the stale-documents list."""
+    if _has_api_proxy():
+        safe_id = parse.quote(document_id, safe="")
+        data = _api_request("POST", f"/documents/{safe_id}/verify")
+        _log_event("verify_document", document_id=document_id)
+        return {"ok": True, "document": data}
+
+    document = get_kb(_get_namespace()).verify_document(document_id)
+    if document is None:
+        return {"ok": False, "error": "Document not found", "document_id": document_id}
+    _log_event("verify_document", document_id=document_id, document_title=document.get("title"))
+    return {"ok": True, "document": document}
+
+
+@mcp.tool()
+def get_stale_documents(days_threshold: int = 30) -> dict:
+    """Find documents that haven't been verified recently and may contain outdated information.
+
+    Returns documents not verified within days_threshold days, sorted oldest first.
+    Each result includes days_since_verified so you can prioritize which to review.
+
+    Recommended workflow:
+    1. Call this at the start of a session to check for stale knowledge.
+    2. For each stale doc, call get_document to read it.
+    3. If still accurate, call verify_document to refresh the timestamp.
+    4. If outdated, call update_document with corrected content."""
+    if _has_api_proxy():
+        results = _api_request("GET", f"/stale-documents?days_threshold={days_threshold}")
+        result_list = results if isinstance(results, list) else []
+        _log_event("get_stale_documents", result_count=len(result_list))
+        return {"ok": True, "stale_documents": result_list}
+
+    results = get_kb(_get_namespace()).get_stale_documents(days_threshold=days_threshold)
+    _log_event("get_stale_documents", result_count=len(results))
+    return {"ok": True, "stale_documents": results}
 
 
 @mcp.tool()

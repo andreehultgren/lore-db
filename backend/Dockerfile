@@ -5,6 +5,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     KB_DB_PATH=/data/knowledge_base.db \
+    KB_EMBEDDING_MODEL=all-MiniLM-L6-v2 \
     SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence_transformers
 
 COPY backend/requirements.txt /app/requirements.txt

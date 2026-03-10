@@ -20,6 +20,7 @@ class Document(DocumentBase):
     id: str
     created_at: datetime
     updated_at: datetime
+    verified_at: datetime
 
 
 class SearchRequest(BaseModel):
@@ -32,3 +33,11 @@ class SearchResult(BaseModel):
     title: str
     content_preview: str
     score: float
+    days_since_verified: int
+
+
+class StaleDocument(BaseModel):
+    id: str
+    title: str
+    verified_at: datetime
+    days_since_verified: int
